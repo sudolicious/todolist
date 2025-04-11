@@ -6,15 +6,26 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
+	"encoding/json"
 	_ "github.com/gorilla/mux"
 	_ "github.com/lib/pq"
 )
 
 type Task struct {
-	ID int
-	Title string
-	Done bool
+	ID 		int		`json:"id"`
+	Title		string		`json:"title"`
+	Done		bool		`json:"done"`
+	CreatedAt	*time.Time	`json:"created_at"` // * for null
 }
+
+//Formating time
+func (t Task) FormattedCreatedAt() string {
+	if t.CreatedAt == nil {
+	return "No data"
+	}
+	return t.CreatedAt.Format("2006-01-02 15:04")
+	}
 
 func createTable(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS tasks (
@@ -26,12 +37,12 @@ func createTable(db *sql.DB) error {
 }
 
 func addTask(db *sql.DB, title string) error {
-	_, err := db.Exec("INSERT INTO tasks (title) VALUES ($1)", title)
+	_, err := db.Exec("INSERT INTO tasks (title, created_at) VALUES ($1, $2)", title, time.Now())
 	return err
-} 
+}
 
 func getAllTasks(db *sql.DB) ([]Task, error) {
-	rows, err := db.Query("SELECT id, title, done FROM tasks ORDER BY id")
+	rows, err := db.Query("SELECT id, title, done, created_at FROM tasks ORDER BY id")
 	if err != nil {
 	return nil, err
 	}
@@ -40,7 +51,7 @@ func getAllTasks(db *sql.DB) ([]Task, error) {
 	var tasks []Task
 	for rows.Next() {
 		var task Task
-		err := rows.Scan(&task.ID, &task.Title, &task.Done)
+		err := rows.Scan(&task.ID, &task.Title, &task.Done, &task.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +93,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	//Migration
+	err = migrate(db)
+	if err != nil {
+		log.Fatal("Migration failed", err)
+	}
+
 	//Testing
 	err = addTask(db, "First Task")
 	if err != nil {
@@ -102,21 +119,31 @@ func main() {
 	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		tasks, err := getAllTasks(db)
 		if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
+	type TaskResponse struct {
+		ID int `json:"id"`
+		Title string `json:"title"`
+		Done bool `json:"done"`
+		CreatedAt string `json:"created_at"`
+}
+
+	var response []TaskResponse
+	for _, task := range tasks { 
+		response = append(response, TaskResponse {
+		ID: task.ID,
+		Title: task.Title,
+		Done: task.Done,
+		CreatedAt: task.FormattedCreatedAt(),
+		})
+	}
+
 		// JSON output
-		w.Header().Set("Content-Type","todolist/json")
-		fmt.Fprint(w, "[")
-		for i, task := range tasks {
-			if i > 0 {
-				fmt.Fprint(w, ",")
-			}
-			fmt.Fprintf(w, `{"id":%d, "title":"%s","done":%v}`, task.ID, task.Title, task.Done)
-		}
-		fmt.Fprint(w, "]")
-	})
+		w.Header().Set("Content-Type","application/json")
+		json.NewEncoder(w).Encode(response)
+})
 
 	http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "PATCH" {
@@ -140,6 +167,7 @@ func main() {
 	})
 
 	http.HandleFunc("/done", func(w http.ResponseWriter, r *http.Request) {
+	// get id from URL and convert string
 	idStr := r.URL.Query().Get("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
