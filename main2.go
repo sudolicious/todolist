@@ -2,47 +2,52 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 	"net/http"
 	"strconv"
-	"time"
-	"encoding/json"
-	_ "github.com/gorilla/mux"
+
+        "github.com/golang-migrate/migrate/v4"
+        "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/lib/pq"
+
 )
 
 type Task struct {
-	ID 		int		`json:"id"`
-	Title		string		`json:"title"`
-	Done		bool		`json:"done"`
-	CreatedAt	*time.Time	`json:"created_at"` // * for null
+	ID int `json:"id"`
+	Title string `json:"title"`
+	Done bool `json:"done"`
+	CreatedAt *time.Time `json:"created_at"`
 }
 
-//Formating time
-func (t Task) FormattedCreatedAt() string {
-	if t.CreatedAt == nil {
-	return "No data"
+func (t *Task) FormattedCreatedAt() string {
+	if t.CreatedAt == nil ||
+	t.CreatedAt.IsZero() {
+		return "No data"
 	}
 	return t.CreatedAt.Format("2006-01-02 15:04")
-	}
+}
 
 func createTable(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS tasks (
 		id SERIAL PRIMARY KEY,
 		title TEXT NOT NULL,
-		done BOOLEAN DEFAULT FALSE)
+		done BOOLEAN DEFAULT FALSE,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)
 	`)
 	return err
 }
 
 func addTask(db *sql.DB, title string) error {
-	_, err := db.Exec("INSERT INTO tasks (title, created_at) VALUES ($1, $2)", title, time.Now())
+	_, err := db.Exec("INSERT INTO tasks (title) VALUES ($1)", title)
 	return err
-}
+} 
 
 func getAllTasks(db *sql.DB) ([]Task, error) {
-	rows, err := db.Query("SELECT id, title, done, created_at FROM tasks ORDER BY id")
+	rows, err := db.Query(`SELECT id, title, done, created_at FROM tasks ORDER BY id`)
 	if err != nil {
 	return nil, err
 	}
@@ -72,7 +77,7 @@ func deleteTask(db *sql.DB, id int) error {
 
 func main() {
 	//Connection to PostgreSql
-	connStr := "user=olgadb dbname=dbgo password='****' sslmode=disable"
+	connStr := "user=olgadb dbname=dbgo password='Cvetaria2015' sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
@@ -88,15 +93,9 @@ func main() {
 	fmt.Println("Successfully connected to PostgreSql!")
 
 	//Create table
-	err = createTable(db)
-	if  err != nil {
-		log.Fatal(err)
-	}
-
-	//Migration
-	err = migrate(db)
-	if err != nil {
-		log.Fatal("Migration failed", err)
+	if err = createTable(db);
+	err != nil {
+		log.Fatal("Mistake of creating the table", err)
 	}
 
 	//Testing
@@ -115,89 +114,91 @@ func main() {
 		fmt.Printf("%d: %s (done: %t)\n", task.ID, task.Title, task.Done)
 }
 
+	//Set migration
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+		if err != nil {
+		log.Fatal("Mistake of driver:", err)
+	}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		"file://migrations", "postgres", driver)
+	if err != nil {
+		log.Fatal("Mistake of migration:", err)
+	}
+
+	if err = m.Up(); err != nil && err != migrate.ErrNoChange {
+		log.Fatal("Mistake of migration:", err)
+	}
+
 	// Set HTTP Router
 	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		tasks, err := getAllTasks(db)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 		}
-
-	type TaskResponse struct {
-		ID int `json:"id"`
-		Title string `json:"title"`
-		Done bool `json:"done"`
-		CreatedAt string `json:"created_at"`
-}
-
-	var response []TaskResponse
-	for _, task := range tasks { 
-		response = append(response, TaskResponse {
-		ID: task.ID,
-		Title: task.Title,
-		Done: task.Done,
-		CreatedAt: task.FormattedCreatedAt(),
-		})
-	}
-
-		// JSON output
+		// JSON output usinq encoding
 		w.Header().Set("Content-Type","application/json")
-		json.NewEncoder(w).Encode(response)
-})
+
+		json.NewEncoder(w).Encode(tasks)
+		})
 
 	http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "PATCH" {
+		if r.Method != "POST" {
 		http.Error(w, "Method not Allowed", http.StatusMethodNotAllowed)
 		return
 		}
-
-	title := r.FormValue("title")
-	if title == "" {
-		http.Error(w, "Title is required", http.StatusBadRequest)
+		title := r.FormValue("title")
+		if title == "" {
+			http.Error(w, "Title is required", http.StatusBadRequest)
 		return
 		}
-
-	err = addTask(db, title)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err = addTask(db, title);
+		err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
+		}
 
 	w.WriteHeader(http.StatusCreated)
 	})
 
 	http.HandleFunc("/done", func(w http.ResponseWriter, r *http.Request) {
-	// get id from URL and convert string
-	idStr := r.URL.Query().Get("id")
+	if r.Method != "POST" {
+		http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
+	return
+	}
+// get id from URL and convert string
+	idStr := r.FormValue("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
 			http.Error(w, "Invalid task ID", http.StatusBadRequest)
 		return
 }
 
-	err = completeTask(db, id)
-	if err != nil {
+	if err = completeTask(db, id);
+	err != nil {
 		http.Error(w, err.Error(),http.StatusInternalServerError)
 	return
 }
-
 	w.WriteHeader(http.StatusOK)
 })
 
 	http.HandleFunc("/delete", func(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
-		id, err := strconv.Atoi(idStr)
+	if r.Method != "POST" {
+		http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
+	return
+	}
+	idStr := r.FormValue("id")
+	id, err := strconv.Atoi(idStr)
 		if err != nil {
 			http.Error(w, "Invalid task ID", http.StatusBadRequest)
 		return
 	}
-
-	err = deleteTask(db,id)
-		if err != nil {
+	if err = deleteTask(db,id);
+	err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	return
 	}
-
 	w.WriteHeader(http.StatusOK)
 })
 
