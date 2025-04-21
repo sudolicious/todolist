@@ -36,15 +36,18 @@ func createTable(db *sql.DB) error {
 		id SERIAL PRIMARY KEY,
 		title TEXT NOT NULL,
 		done BOOLEAN DEFAULT FALSE,
-		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)
+		created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)
 	`)
 	return err
 }
 
-func addTask(db *sql.DB, title string) error {
-	_, err := db.Exec("INSERT INTO tasks (title) VALUES ($1)", title)
-	return err
-} 
+func addTask(db *sql.DB, title string) (*Task, error) {
+    var task Task
+    err := db.QueryRow(
+        "INSERT INTO tasks (title) VALUES ($1) RETURNING id, title, done, created_at", title,
+	).Scan(&task.ID, &task.Title, &task.Done, &task.CreatedAt)
+    return &task, err
+}
 
 func getAllTasks(db *sql.DB) ([]Task, error) {
 	rows, err := db.Query(`SELECT id, title, done, created_at FROM tasks ORDER BY id`)
@@ -98,22 +101,6 @@ func main() {
 		log.Fatal("Mistake of creating the table", err)
 	}
 
-	//Testing
-	err = addTask(db, "First Task")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	tasks, err := getAllTasks(db)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("List of tasks:")
-	for _, task := range tasks {
-		fmt.Printf("%d: %s (done: %t)\n", task.ID, task.Title, task.Done)
-}
-
 	//Set migration
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 		if err != nil {
@@ -143,24 +130,41 @@ func main() {
 		json.NewEncoder(w).Encode(tasks)
 		})
 
-	http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-		http.Error(w, "Method not Allowed", http.StatusMethodNotAllowed)
-		return
-		}
-		title := r.FormValue("title")
-		if title == "" {
-			http.Error(w, "Title is required", http.StatusBadRequest)
-		return
-		}
-		if err = addTask(db, title);
-		err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-		}
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	tasks, err := getAllTasks(db)
+		if err != nil {
+    		log.Fatal(err)
+	}
 
-	w.WriteHeader(http.StatusCreated)
-	})
+	fmt.Println("List of tasks:")
+		for _, task := range tasks {
+    	fmt.Printf("%d: %s (done: %t, created: %s)\n", task.ID, task.Title, task.Done, task.FormattedCreatedAt())
+}
+})
+
+	http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
+    		if r.Method != "POST" {
+        http.Error(w, "Method not Allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    	title := r.FormValue("title")
+    		if title == "" {
+        http.Error(w, "Title is required", http.StatusBadRequest)
+        return
+    }
+
+    	task, err := addTask(db, title)
+    		if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+	w.Header().Set("Content-Type", "application/json")
+
+    	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(task)
+})
 
 	http.HandleFunc("/done", func(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
