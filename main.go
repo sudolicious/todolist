@@ -5,36 +5,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 	"net/http"
 	"strconv"
+	"time"
 
-        "github.com/golang-migrate/migrate/v4"
-        "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/lib/pq"
-
 )
 
 type Task struct {
-	ID int `json:"id"`
-	Title string `json:"title"`
-	Done bool `json:"done"`
+	ID        int        `json:"id"`
+	Title     string     `json:"title"`
+	Done      bool       `json:"done"`
 	CreatedAt *time.Time `json:"created_at"`
 }
 
 func addTask(db *sql.DB, title string) (*Task, error) {
-    var task Task
-    err := db.QueryRow(
-        "INSERT INTO tasks (title) VALUES ($1) RETURNING id, title, done, created_at", title,
+	var task Task
+	err := db.QueryRow(
+		"INSERT INTO tasks (title) VALUES ($1) RETURNING id, title, done, created_at", title,
 	).Scan(&task.ID, &task.Title, &task.Done, &task.CreatedAt)
-    return &task, err
+	return &task, err
 }
 
 func getAllTasks(db *sql.DB) ([]Task, error) {
 	rows, err := db.Query(`SELECT id, title, done, created_at FROM tasks ORDER BY id`)
 	if err != nil {
-	return nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -42,10 +41,10 @@ func getAllTasks(db *sql.DB) ([]Task, error) {
 	for rows.Next() {
 		var task Task
 		err := rows.Scan(&task.ID, &task.Title, &task.Done, &task.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	tasks = append(tasks, task)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
 	}
 	return tasks, nil
 }
@@ -60,23 +59,25 @@ func deleteTask(db *sql.DB, id int) error {
 	return err
 }
 
-func runMigrations(db *sql.DB, migrationsPath string) error {
+func runMigrations(db *sql.DB) error {
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
 		return fmt.Errorf("Failed to create driver: %w", err)
-		}
+	}
 
 	m, err := migrate.NewWithDatabaseInstance(
-		"file:///home/olga/go/todolist/migrations", "postgres", driver,
-		)
-	if err != nil{
+		"file://migrations",
+		"postgres",
+		driver,
+	)
+	if err != nil {
 		return fmt.Errorf("Failed to create migrate instance: %w", err)
-		}
-	if err :=m.Up(); err!=nil && err != migrate.ErrNoChange{
-		return fmt.Errorf("Failed to apply migrations: %w", err)
-		}
-	return nil
 	}
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("Failed to apply migrations: %w", err)
+	}
+	return nil
+}
 
 func main() {
 
@@ -97,8 +98,7 @@ func main() {
 	fmt.Println("Successfully connected to PostgreSql!")
 
 	//Migration func
-	if err := runMigrations(db, "/home/olga/go/todolist/migrations");
-		err != nil{
+	if err := runMigrations(db); err != nil {
 		log.Fatal("Migration error:", err)
 	}
 	fmt.Println("Migration applied successfully")
@@ -107,78 +107,79 @@ func main() {
 	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		tasks, err := getAllTasks(db)
 		if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		// JSON output usinq encoding
-		w.Header().Set("Content-Type","application/json")
+		w.Header().Set(
+			"Content-Type",
+			"application/json",
+		)
 
 		json.NewEncoder(w).Encode(tasks)
-		})
+	})
 
 	http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
-    		if r.Method != "POST" {
-        http.Error(w, "Method not Allowed", http.StatusMethodNotAllowed)
-        return
-    }
+		if r.Method != "POST" {
+			http.Error(w, "Method not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
-    	title := r.FormValue("title")
-    		if title == "" {
-        http.Error(w, "Title is required", http.StatusBadRequest)
-        return
-    }
+		title := r.FormValue("title")
+		if title == "" {
+			http.Error(w, "Title is required", http.StatusBadRequest)
+			return
+		}
 
-    	task, err := addTask(db, title)
-    		if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
+		task, err := addTask(db, title)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-	w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "application/json")
 
-    	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(task)
-})
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(task)
+	})
 
 	http.HandleFunc("/done", func(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
-	return
-	}
-// get id from URL and convert string
-	idStr := r.FormValue("id")
+		if r.Method != "POST" {
+			http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// get id from URL and convert string
+		idStr := r.FormValue("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
 			http.Error(w, "Invalid task ID", http.StatusBadRequest)
-		return
-}
+			return
+		}
 
-	if err = completeTask(db, id);
-	err != nil {
-		http.Error(w, err.Error(),http.StatusInternalServerError)
-	return
-}
-	w.WriteHeader(http.StatusOK)
-})
+		if err = completeTask(db, id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 
 	http.HandleFunc("/delete", func(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
-	return
-	}
-	idStr := r.FormValue("id")
-	id, err := strconv.Atoi(idStr)
+		if r.Method != "POST" {
+			http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		idStr := r.FormValue("id")
+		id, err := strconv.Atoi(idStr)
 		if err != nil {
 			http.Error(w, "Invalid task ID", http.StatusBadRequest)
-		return
-	}
-	if err = deleteTask(db,id);
-	err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	return
-	}
-	w.WriteHeader(http.StatusOK)
-})
+			return
+		}
+		if err = deleteTask(db, id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 
 	fmt.Println("Server running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))

@@ -4,10 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="dfd7402f-0ad9-4b23-bafc-05cca27d78a7" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/main2.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/migrations/0001_init.down.sql" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/migrations/0001_init.up.sql" beforeDir="false" />
+    <list default="true" id="2070b5f4-83e2-42f0-9520-b283652f7f10" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/main.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -19,9 +17,10 @@
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="ProjectColorInfo"><![CDATA[{
+  "customColor": "",
   "associatedIndex": 0
 }]]></component>
-  <component name="ProjectId" id="2w5yrWufuE4f7xXE3DAxeqjtVwl" />
+  <component name="ProjectId" id="2w8pCndwJjJHIZhlBPBWzc7Eh40" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
@@ -39,15 +38,10 @@
     "git-widget-placeholder": "master",
     "go.import.settings.migrated": "true",
     "go.sdk.automatically.set": "true",
-    "last_opened_file_path": "/home/olga/go/todolist",
+    "last_opened_file_path": "/home/olga",
     "node.js.detected.package.eslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "nodejs_package_manager_path": "npm"
-  },
-  "keyToStringList": {
-    "DatabaseDriversLRU": [
-      "postgresql"
-    ]
   }
 }]]></component>
   <component name="SharedIndexes">
@@ -60,11 +54,11 @@
   </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
-      <changelist id="dfd7402f-0ad9-4b23-bafc-05cca27d78a7" name="Changes" comment="" />
-      <created>1745345932879</created>
+      <changelist id="2070b5f4-83e2-42f0-9520-b283652f7f10" name="Changes" comment="" />
+      <created>1745432941441</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
-      <updated>1745345932879</updated>
+      <updated>1745432941441</updated>
     </task>
     <servers />
   </component>
