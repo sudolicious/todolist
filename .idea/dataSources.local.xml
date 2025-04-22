@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="dataSourceStorageLocal" created-in="GO-251.23774.430">
+    <data-source name="dbgo@localhost" uuid="06423168-56df-4704-8a79-13af4fb8fa96">
+      <database-info product="" version="" jdbc-version="" driver-name="" driver-version="" dbms="POSTGRES" />
+      <secret-storage>master_key</secret-storage>
+      <user-name>olgadb</user-name>
+      <schema-mapping />
+    </data-source>
+  </component>
+</project>

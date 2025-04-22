@@ -23,24 +23,6 @@ type Task struct {
 	CreatedAt *time.Time `json:"created_at"`
 }
 
-func (t *Task) FormattedCreatedAt() string {
-	if t.CreatedAt == nil ||
-	t.CreatedAt.IsZero() {
-		return "No data"
-	}
-	return t.CreatedAt.Format("2006-01-02 15:04")
-}
-
-func createTable(db *sql.DB) error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS tasks (
-		id SERIAL PRIMARY KEY,
-		title TEXT NOT NULL,
-		done BOOLEAN DEFAULT FALSE,
-		created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)
-	`)
-	return err
-}
-
 func addTask(db *sql.DB, title string) (*Task, error) {
     var task Task
     err := db.QueryRow(
@@ -78,7 +60,26 @@ func deleteTask(db *sql.DB, id int) error {
 	return err
 }
 
+func runMigrations(db *sql.DB, migrationsPath string) error {
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	if err != nil {
+		return fmt.Errorf("Failed to create driver: %w", err)
+		}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		"file:///home/olga/go/todolist/migrations", "postgres", driver,
+		)
+	if err != nil{
+		return fmt.Errorf("Failed to create migrate instance: %w", err)
+		}
+	if err :=m.Up(); err!=nil && err != migrate.ErrNoChange{
+		return fmt.Errorf("Failed to apply migrations: %w", err)
+		}
+	return nil
+	}
+
 func main() {
+
 	//Connection to PostgreSql
 	connStr := "user=olgadb dbname=dbgo password='Cvetaria2015' sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
@@ -95,27 +96,12 @@ func main() {
 
 	fmt.Println("Successfully connected to PostgreSql!")
 
-	//Create table
-	if err = createTable(db);
-	err != nil {
-		log.Fatal("Mistake of creating the table", err)
+	//Migration func
+	if err := runMigrations(db, "/home/olga/go/todolist/migrations");
+		err != nil{
+		log.Fatal("Migration error:", err)
 	}
-
-	//Set migration
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
-		if err != nil {
-		log.Fatal("Mistake of driver:", err)
-	}
-
-	m, err := migrate.NewWithDatabaseInstance(
-		"file://migrations", "postgres", driver)
-	if err != nil {
-		log.Fatal("Mistake of migration:", err)
-	}
-
-	if err = m.Up(); err != nil && err != migrate.ErrNoChange {
-		log.Fatal("Mistake of migration:", err)
-	}
+	fmt.Println("Migration applied successfully")
 
 	// Set HTTP Router
 	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -129,18 +115,6 @@ func main() {
 
 		json.NewEncoder(w).Encode(tasks)
 		})
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-	tasks, err := getAllTasks(db)
-		if err != nil {
-    		log.Fatal(err)
-	}
-
-	fmt.Println("List of tasks:")
-		for _, task := range tasks {
-    	fmt.Printf("%d: %s (done: %t, created: %s)\n", task.ID, task.Title, task.Done, task.FormattedCreatedAt())
-}
-})
 
 	http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
     		if r.Method != "POST" {
