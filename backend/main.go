@@ -13,6 +13,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/lib/pq"
+	"github.com/rs/cors"
 )
 
 type Task struct {
@@ -82,7 +83,7 @@ func runMigrations(db *sql.DB) error {
 func main() {
 
 	//Connection to PostgreSql
-	connStr := "user=olgadb dbname=dbgo password='****' sslmode=disable"
+	connStr := "user=olgadb dbname=dbgo password='Cvetaria2015' sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
@@ -103,23 +104,30 @@ func main() {
 	}
 	fmt.Println("Migration applied successfully")
 
+	//Create Router
+        mux := http.NewServeMux()
+
 	// Set HTTP Router
-	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		tasks, err := getAllTasks(db)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		// JSON output usinq encoding
-		w.Header().Set(
-			"Content-Type",
-			"application/json",
-		)
+		w.Header().Set("Content-Type",	"application/json",)
 
-		json.NewEncoder(w).Encode(tasks)
+		// cashing
+       		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+    		w.Header().Set("Pragma", "no-cache")
+    		w.Header().Set("Expires", "0")
+
+		if err := json.NewEncoder(w).Encode(tasks); err != nil {
+     			http.Error(w, err.Error(), http.StatusInternalServerError)
+    		}
 	})
 
-	http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/add", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method not Allowed", http.StatusMethodNotAllowed)
 			return
@@ -143,7 +151,7 @@ func main() {
 		json.NewEncoder(w).Encode(task)
 	})
 
-	http.HandleFunc("/done", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/done", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
 			return
@@ -163,7 +171,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	http.HandleFunc("/delete", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/delete", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
 			return
@@ -181,6 +189,37 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	//Set CORS
+	c := cors.New(cors.Options{
+    		AllowedOrigins:   []string{"http://localhost:3000", "http://127.0.0.1:3000"},
+    		AllowOriginFunc: func(origin string) bool {
+
+		// Allow requests with no Origin (for curl)
+        		if origin == "" {
+       			return true
+        		}
+
+        	for _, allowedOrigin := range []string{"http://localhost:3000", "http://127.0.0.1:3000"} {
+	        	if origin == allowedOrigin {
+               		return true
+            		}
+        	}
+        return false
+    	},
+
+	AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+    	AllowedHeaders:   []string{"Content-Type", "Authorization"},
+    	AllowCredentials: true,
+    	Debug:           true,
+	})
+
+	// Wrap the router with CORS middleware
+    	handler := c.Handler(mux)
+
+	fs := http.FileServer(http.Dir("./frontend/build"))
+	mux.Handle("/", http.StripPrefix("/", fs))
+
+	// Start server
 	fmt.Println("Server running on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+    	log.Fatal(http.ListenAndServe(":8080", handler))
 }
