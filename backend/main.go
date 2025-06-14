@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"os"
 
+        "github.com/joho/godotenv"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -82,8 +84,18 @@ func runMigrations(db *sql.DB) error {
 
 func main() {
 
+	if err := godotenv.Load(); err != nil {
+        log.Println("Warning: No .env file found")
+    }
+
 	//Connection to PostgreSql
-	connStr := "user=olgadb dbname=dbgo password='1234' sslmode=disable"
+//	connStr := "user=olgadb dbname=dbgo password='1234' sslmode=disable"
+	connStr := fmt.Sprintf(
+	    "user=%s dbname=%s password=%s sslmode=disable",
+	    os.Getenv("DB_USER"),
+	    os.Getenv("DB_NAME"),
+	    os.Getenv("DB_PASSWORD"),
+	)
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
