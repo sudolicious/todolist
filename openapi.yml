@@ -1,0 +1,121 @@
+openapi: 3.0.0
+info:
+  title: Task Management API
+  version: 1.0.0
+  description: API для управления задачами
+
+servers:
+  - url: http://localhost:8080
+    description: Локальный сервер
+
+paths:
+  /api/tasks:
+    get:
+      summary: Получить список всех задач
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+        '500':
+          description: Ошибка сервера
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/add:
+    post:
+      summary: Добавить новую задачу
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: Название задачи
+              required:
+                - title
+      responses:
+        '201':
+          description: Задача создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: Неверный запрос (например, пустой title)
+        '500':
+          description: Ошибка сервера
+
+  /api/done:
+    post:
+      summary: Отметить задачу как выполненную
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  description: ID задачи
+              required:
+                - id
+      responses:
+        '200':
+          description: Успех
+        '400':
+          description: Неверный ID
+        '500':
+          description: Ошибка сервера
+
+  /api/delete:
+    post:
+      summary: Удалить задачу
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  description: ID задачи
+              required:
+                - id
+      responses:
+        '200':
+          description: Успех
+        '400':
+          description: Неверный ID
+        '500':
+          description: Ошибка сервера
+
+components:
+  schemas:
+    Task:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: "Выучить linux"
+        done:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T12:00:00Z"
