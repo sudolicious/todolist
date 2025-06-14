@@ -2,6 +2,7 @@ import { useTasks } from '../hooks/useTasks';
 import React, { useState } from 'react';
 import TaskForm from '../components/TaskForm/TaskForm';
 import TaskList from '../components/TaskList/TaskList';
+import styles from './HomePage.module.css';
 
 const HomePage = () => {
   const { tasks, loading, error, addTask, completeTask, deleteTask } = useTasks();
@@ -15,22 +16,30 @@ const HomePage = () => {
     }
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewTaskTitle(e.target.value);
+  };
+
   if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error}</div>;
 
   return (
     <div>
-      <h1>To Do List</h1>
+      <h1>To Do List: Список задач</h1>
       <TaskForm 
         value={newTaskTitle}
-        onChange={setNewTaskTitle}
+        onChange={handleInputChange}
         onSubmit={handleSubmit}
       />
-      <TaskList 
-        tasks={tasks}
-        onComplete={completeTask}
-        onDelete={deleteTask}
-      />
+      {tasks && tasks.length > 0 ? (
+        <TaskList 
+          tasks={tasks} 
+          onComplete={completeTask}
+          onDelete={deleteTask}
+        />
+      ) : (
+        <p>Нет задач. Добавьте первую!</p>
+      )}
     </div>
   );
 };

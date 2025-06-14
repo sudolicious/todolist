@@ -1,26 +1,25 @@
+import React from 'react';
 import { Task } from '../../types/task';
 import styles from './TaskForm.module.css';
 
 interface TaskFormProps {
   value: string;
-  onChange: (value: string) => void;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSubmit: (e: React.FormEvent) => void;
 }
 
-const TaskForm = ({ value, onChange, onSubmit }: TaskFormProps) => {
+const TaskForm: React.FC<TaskFormProps> = ({ value, onChange, onSubmit }) => {
   return (
-    <form onSubmit={onSubmit} className={styles.form}>
+    <form onSubmit={onSubmit} className={styles.form}> 
       <input
         type="text"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Enter a new task..."
+        onChange={onChange}
+        placeholder="Добавить задачу..."
         className={styles.input}
         required
       />
-      <button type="submit" className={styles.button}>
-        Add Task
-      </button>
+      <button type="submit" className={styles.button}>Добавить</button>
     </form>
   );
 };

@@ -18,7 +18,7 @@ export const addTask = async (title: string): Promise<Task> => {
     method: 'POST',
     body: formData,
   });
-  
+
   if (!response.ok) {
     throw new Error('Failed to add task');
   }

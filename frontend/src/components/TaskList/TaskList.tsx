@@ -8,7 +8,7 @@ interface TaskListProps {
   onDelete: (id: number) => void;
 }
 
-const TaskList = ({ tasks, onComplete, onDelete }: TaskListProps) => {
+const TaskList: React.FC<TaskListProps> = ({ tasks, onComplete, onDelete }) => {
   return (
     <ul className={styles.taskList}>
       {tasks.map(task => (
