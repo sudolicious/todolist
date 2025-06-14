@@ -27,7 +27,7 @@ export const useTasks = () => {
   const handleAddTask = async (title: string) => {
     try {
       const newTask = await addTask(title);
-      setTasks(prev => [...prev, newTask]);
+      setTasks(prev => Array.isArray(prev) ? [...prev, newTask] : [newTask]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add task');
     }
