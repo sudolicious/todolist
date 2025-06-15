@@ -6,7 +6,7 @@ ToDoList - приложение для управления списком за�
 - Выделение задачи выполненной;
 - Удаление задачи
 
-![ToDoList Preview](frontend/public/Screenshot.png)
+![ToDoList Preview](https://raw.githubusercontent.com/sudolicious/todolist/blob/main/frontend/public/Screenshot.png?raw=true)
 
 Технологический стек:
 
