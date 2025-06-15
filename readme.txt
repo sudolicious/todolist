@@ -24,17 +24,25 @@ ToDoList - приложение для управления списком за�
 git clone https://github.com/sudolicious/todolist.git
 cd todolist
 
-2. Бэкенд
+2. Запуск PostgreSQL в Docker
+docker run --name postgres \
+  -e POSTGRES_USER=your_username \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=your_database \
+  -p 5432:5432 \
+  -d postgres:16
+
+3. Бэкенд
 cd backend
-cp .env.example .env  # заполните пароль для БД
+cp .env.example .env  # заполните переменные для БД
 go mod download
 go run main.go
 
-3. Фронтенд
+4. Фронтенд
 cd frontend
 npm install
 npm run build
-npm serve -s
+serve -s build
 
 Структура проекта:
 todolist/
