@@ -2,7 +2,6 @@ import { useTasks } from '../hooks/useTasks';
 import React, { useState } from 'react';
 import TaskForm from '../components/TaskForm/TaskForm';
 import TaskList from '../components/TaskList/TaskList';
-import styles from './HomePage.module.css';
 
 const HomePage = () => {
   const { tasks, loading, error, addTask, completeTask, deleteTask } = useTasks();

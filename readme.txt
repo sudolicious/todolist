@@ -37,7 +37,7 @@ cd backend
 cp .env.example .env  # заполните переменные для БД
 go mod download
 go run main.go
-API: http://localhost:8080
+API: http://localhost:8080/api/tasks
 
 4. Запуск фронтенда
 cd frontend
