@@ -90,8 +90,9 @@ func main() {
 
 	//Connection to PostgreSql
 	connStr := fmt.Sprintf(
-	    "user=%s dbname=%s password=%s sslmode=disable",
-	    os.Getenv("DB_USER"),
+	    "host=%s user=%s dbname=%s password=%s sslmode=disable",
+	    os.Getenv("DB_HOST"),
+            os.Getenv("DB_USER"),
 	    os.Getenv("DB_NAME"),
 	    os.Getenv("DB_PASSWORD"),
 	)

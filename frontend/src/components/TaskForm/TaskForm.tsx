@@ -1,5 +1,4 @@
 import React from 'react';
-import { Task } from '../../types/task';
 import styles from './TaskForm.module.css';
 
 interface TaskFormProps {
