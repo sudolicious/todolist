@@ -1,67 +1,66 @@
-ToDoList - приложение для управления списком задач.
+ToDoList - A task management application.
 
-Функционал:
-- Добавление новых задач;
-- Просмотр списка всех задач;
-- Выделение задачи выполненной;
-- Удаление задачи
+Features:
 
-![ToDoList Preview](https://github.com/sudolicious/todolist/blob/main/frontend/public/Screenshot.png?raw=true)
+- Add new tasks;
+- View the list of all tasks;
+- Mark tasks as completed;
+- Delete tasks.
 
-Технологический стек:
+Preview:
+https://github.com/sudolicious/todolist/blob/main/frontend/public/Screenshot.png?raw=true
 
-**Backend:** 
-- Go 1.21+
+Technology Stack:
 - PostgreSQL 16
-
-**Frontend:**
+- Backend: Go 1.21+
+- Frontend:
 - React 18+
 - TypeScript 4.8.5
 
-Установка и запуск.
+Installation and Setup.
 
-1. Клонирование репозитория
-git clone https://github.com/sudolicious/todolist.git
-cd todolist
+    1. Clone the repository
+    git clone https://github.com/sudolicious/todolist.git
+    cd todolist
 
-2. Запуск PostgreSQL в Docker
-docker run --name postgres \
-  -e POSTGRES_USER=your_username \
-  -e POSTGRES_PASSWORD=your_password \
-  -e POSTGRES_DB=your_database \
-  -p 5432:5432 \
-  -d postgres:16
+    2. Run PostgreSQL in Docker
+    docker run --name postgres \
+    -e POSTGRES_USER=your_username \
+    -e POSTGRES_PASSWORD=your_password \
+    -e POSTGRES_DB=your_database \
+    -p 5432:5432 \
+    -d postgres:16
 
-3. Запуск бэкенда
-cd backend
-cp .env.example .env  # заполните переменные для БД
-go mod download
-go run main.go
-API: http://localhost:8080/api/tasks
+    3. Start the backend
+    cd backend
+    cp .env.example .env # fill in the database variables
+    go mod download
+    go run main.go
+    API: http://localhost:8080/api/tasks
 
-4. Запуск фронтенда
-cd frontend
-npm install
-npm run build
-serve -s build
-Фронтенд: http://localhost:3000
+    4. Start the frontend
+    cd frontend
+    cp .env.example .env # fill in the API URL variable
+    npm install
+    npm run build
+    serve -s build
+    Frontend: http://localhost:3000
 
-Структура проекта:
+Project Structure:
 todolist/
-├── backend/            # Go-бэкенд
-│   ├── go.mod          # Модули Go
-│   ├── go.sum          # Зависимости
-│   ├── main.go         # Точка входа
-│   └── migrations/     # Миграции БД
+├── backend/ # Go backend
+│ ├── go.mod # Go modules
+│ ├── go.sum # Dependencies
+│ ├── main.go # Entry point
+│ └── migrations/ # Database migrations
 │
-├── frontend/           # React-фронтенд
-│   ├── build/          # Собранный проект
-│   ├── node_modules/   # Зависимости npm
-│   ├── public/         # Статические файлы
-│   ├── src/            # Исходники
-│   ├── package.json    # Зависимости
-│   └── tsconfig.json   # Настройки TypeScript
+├── frontend/ # React frontend
+│ ├── build/ # Build output
+│ ├── node_modules/ # npm dependencies
+│ ├── public/ # Static files
+│ ├── src/ # Source files
+│ ├── package.json # Dependencies
+│ └── tsconfig.json # TypeScript settings
 │
-├── openapi.yml         # OpenAPI спецификация
-└── README.md           # Этот файл
-
+├── openapi.yml # OpenAPI specification
+└── README.md # This file
