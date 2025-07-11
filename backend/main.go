@@ -18,6 +18,8 @@ import (
 	"github.com/rs/cors"
 )
 
+const Version = "1.0.0"
+
 type Task struct {
 	ID        int        `json:"id"`
 	Title     string     `json:"title"`
