@@ -18,7 +18,7 @@ import (
 	"github.com/rs/cors"
 )
 
-const Version = "1.0.0"
+const Version = "1.0.1"
 
 type Task struct {
 	ID        int        `json:"id"`
@@ -183,6 +183,14 @@ func main() {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+	})
+
+        mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+   		w.Header().Set("Content-Type", "application/json")
+    		json.NewEncoder(w).Encode(map[string]string{
+    			"status": "ok",
+   			"version": Version,
+   		})
 	})
 
 	mux.HandleFunc("/api/delete", func(w http.ResponseWriter, r *http.Request) {
