@@ -1,0 +1,59 @@
+name: Build Backend Docker Image
+
+trigger:
+  branches:
+    include:
+    - main
+
+pool: Default
+
+variables:
+  imageName: 'sudolicious1/todolist-backend'
+  tag: '$(Build.SourceBranchName)'
+
+steps:
+- checkout: self
+  fetchDepth: 0
+
+- script: |
+    LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+    VERSION=${LATEST_TAG#v}
+    
+    echo "##vso[task.setvariable variable=gitTag]$LATEST_TAG"
+    echo "##vso[task.setvariable variable=appVersion]$VERSION"
+    echo "Git tag: $LATEST_TAG"
+    echo "Version: $VERSION"
+  displayName: 'Get version from Git tag'
+
+- task: Docker@2
+  inputs:
+    command: 'login'
+    containerRegistry: 'docker-hub-connection'
+  displayName: 'Login to Docker Hub'
+
+- task: Docker@2
+  inputs:
+    command: 'build'
+    repository: '$(imageName)'
+    dockerfile: 'backend/Dockerfile'
+    tags: |
+      $(appVersion)
+      latest
+    arguments: '--pull'
+  displayName: 'Build Docker image'
+
+- task: Docker@2
+  inputs:
+    command: 'push'
+    repository: '$(imageName)'
+    tags: |
+      $(appVersion)
+      latest
+  displayName: 'Push Docker image to Docker Hub'
+
+- script: |
+    docker rmi $(imageName):$(appVersion) 2>/dev/null || true
+    docker image prune -f
+  displayName: 'Cleanup'
+  condition: always()
+

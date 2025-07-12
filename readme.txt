@@ -40,7 +40,6 @@ Installation and Setup.
 
     4. Start the frontend
     cd frontend
-    cp .env.example .env # fill in the API URL variable
     npm install
     npm run build
     serve -s build
