@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
-	"os"
 
-        "github.com/joho/godotenv"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/rs/cors"
 )
@@ -87,16 +87,16 @@ func runMigrations(db *sql.DB) error {
 func main() {
 
 	if err := godotenv.Load(); err != nil {
-        log.Println("Warning: No .env file found")
-    }
+		log.Println("Warning: No .env file found")
+	}
 
 	//Connection to PostgreSql
 	connStr := fmt.Sprintf(
-	    "host=%s user=%s dbname=%s password=%s sslmode=disable",
-	    os.Getenv("DB_HOST"),
-            os.Getenv("DB_USER"),
-	    os.Getenv("DB_NAME"),
-	    os.Getenv("DB_PASSWORD"),
+		"host=%s user=%s dbname=%s password=%s sslmode=disable",
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_NAME"),
+		os.Getenv("DB_PASSWORD"),
 	)
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -119,7 +119,7 @@ func main() {
 	fmt.Println("Migration applied successfully")
 
 	//Create Router
-        mux := http.NewServeMux()
+	mux := http.NewServeMux()
 
 	// Set HTTP Router
 	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -129,16 +129,16 @@ func main() {
 			return
 		}
 		// JSON output usinq encoding
-		w.Header().Set("Content-Type",	"application/json",)
+		w.Header().Set("Content-Type", "application/json")
 
 		// cashing
-       		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-    		w.Header().Set("Pragma", "no-cache")
-    		w.Header().Set("Expires", "0")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 
 		if err := json.NewEncoder(w).Encode(tasks); err != nil {
-     			http.Error(w, err.Error(), http.StatusInternalServerError)
-    		}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 
 	mux.HandleFunc("/api/add", func(w http.ResponseWriter, r *http.Request) {
@@ -185,12 +185,28 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-        mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-   		w.Header().Set("Content-Type", "application/json")
-    		json.NewEncoder(w).Encode(map[string]string{
-    			"status": "ok",
-   			"version": Version,
-   		})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		healthStatus := map[string]interface{}{
+			"status":    "ok",
+			"version":   Version,
+			"service":   "todolist-backend",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"components": map[string]string{
+				"database": "ok",
+			},
+		}
+
+		err := db.Ping()
+		if err != nil {
+			healthStatus["components"].(map[string]string)["database"] = "error"
+			healthStatus["status"] = "degraded"
+			log.Printf("Database health check failed: %v", err)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(healthStatus)
 	})
 
 	mux.HandleFunc("/api/delete", func(w http.ResponseWriter, r *http.Request) {
@@ -213,35 +229,35 @@ func main() {
 
 	//Set CORS
 	c := cors.New(cors.Options{
-    		AllowedOrigins:   []string{"http://localhost:3000", "http://127.0.0.1:3000"},
-    		AllowOriginFunc: func(origin string) bool {
+		AllowedOrigins: []string{"http://localhost:3000", "http://127.0.0.1:3000"},
+		AllowOriginFunc: func(origin string) bool {
 
-		// Allow requests with no Origin (for curl)
-        		if origin == "" {
-       			return true
-        		}
+			// Allow requests with no Origin (for curl)
+			if origin == "" {
+				return true
+			}
 
-        	for _, allowedOrigin := range []string{"http://localhost:3000", "http://127.0.0.1:3000"} {
-	        	if origin == allowedOrigin {
-               		return true
-            		}
-        	}
-        return false
-    	},
+			for _, allowedOrigin := range []string{"http://localhost:3000", "http://127.0.0.1:3000"} {
+				if origin == allowedOrigin {
+					return true
+				}
+			}
+			return false
+		},
 
-	AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-    	AllowedHeaders:   []string{"Content-Type", "Authorization"},
-    	AllowCredentials: true,
-    	Debug:           true,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+		AllowCredentials: true,
+		Debug:            true,
 	})
 
 	// Wrap the router with CORS middleware
-    	handler := c.Handler(mux)
+	handler := c.Handler(mux)
 
 	fs := http.FileServer(http.Dir("./frontend/build"))
 	mux.Handle("/", http.StripPrefix("/", fs))
 
 	// Start server
 	fmt.Println("Server running on http://localhost:8080")
-    	log.Fatal(http.ListenAndServe(":8080", handler))
+	log.Fatal(http.ListenAndServe(":8080", handler))
 }

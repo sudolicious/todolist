@@ -1,59 +1,148 @@
-name: Build Backend Docker Image
+name: $(Date:yyyyMMdd)-$(GitVersion.MajorMinorPatch)-$(Rev:.r)
 
 trigger:
   branches:
     include:
-    - main
+      - main
 
 pool: Default
 
 variables:
   imageName: 'sudolicious1/todolist-backend'
-  tag: '$(Build.SourceBranchName)'
 
-steps:
-- checkout: self
-  fetchDepth: 0
+stages:
+- stage: GetVersion
+  displayName: '🔖 Get Version'
+  jobs:
+  - job: GetVersion
+    displayName: 'Get version with GitVersion'
+    steps:
+    - checkout: self
+      fetchDepth: 0
+      persistCredentials: true
+      clean: true
+      fetchTags: true
 
-- script: |
-    LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
-    VERSION=${LATEST_TAG#v}
+    - script: |
+        VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable MajorMinorPatch)
+        FULL_VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable FullSemVer)
+
+        echo "##vso[build.updatebuildnumber]$(Date:yyyyMMdd)-$VERSION-$(Rev:r)"
+        echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
+        echo "##vso[task.setvariable variable=FullVersion;isOutput=true]$FULL_VERSION"
+
+        echo "Detected AppVersion: $VERSION"
+        echo "Detected FullVersion: $FULL_VERSION"
+      name: setVersion
+      displayName: 'Get version using GitVersion'
+
+- stage: Build
+  displayName: '🏗️ Build Docker Image'
+  dependsOn: GetVersion
+  jobs:
+  - job: Build
+    displayName: 'Build image'
+    variables:
+      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
+    steps:
+    - checkout: self
     
-    echo "##vso[task.setvariable variable=gitTag]$LATEST_TAG"
-    echo "##vso[task.setvariable variable=appVersion]$VERSION"
-    echo "Git tag: $LATEST_TAG"
-    echo "Version: $VERSION"
-  displayName: 'Get version from Git tag'
+    - task: Docker@2
+      inputs:
+        command: 'login'
+        containerRegistry: 'docker-hub-connection'
+      displayName: 'Login to Docker Hub'
+    
+    - task: Docker@2
+      inputs:
+        command: 'build'
+        repository: '$(imageName)'
+        dockerfile: 'backend/Dockerfile'
+        buildContext: 'backend'
+        tags: |
+          $(AppVersion)
+          latest
+        arguments: '--build-arg APP_VERSION=$(AppVersion)'
+      displayName: 'Build Docker image'
 
-- task: Docker@2
-  inputs:
-    command: 'login'
-    containerRegistry: 'docker-hub-connection'
-  displayName: 'Login to Docker Hub'
+- stage: IntegrationTest
+  displayName: '🧪 Integration Tests with Postgres'
+  dependsOn: Build
+  jobs:
+  - job: IntegrationTests
+    displayName: 'Run integration tests'
+    variables:
+      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
+    services:
+      postgres: 
+        image: postgres:15
+        env:
+          POSTGRES_USER: $(dbUser)
+          POSTGRES_PASSWORD: $(dbPassword)
+          POSTGRES_DB: $(dbName)
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U $(dbUser)"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+    - checkout: self
 
-- task: Docker@2
-  inputs:
-    command: 'build'
-    repository: '$(imageName)'
-    dockerfile: 'backend/Dockerfile'
-    tags: |
-      $(appVersion)
-      latest
-    arguments: '--pull'
-  displayName: 'Build Docker image'
+    - script: |
+        echo "Running integration tests with database..."
+        echo "DB: $(dbUser)@localhost:5432/$(dbName)"
+        
+        export DB_HOST=localhost
+        export DB_USER=$(dbUser)
+        export DB_PASSWORD=$(dbPassword)
+        export DB_NAME=$(dbName)
+        export DB_PORT=$(dbPort)
+        export DB_SSL_MODE=disable
 
-- task: Docker@2
-  inputs:
-    command: 'push'
-    repository: '$(imageName)'
-    tags: |
-      $(appVersion)
-      latest
-  displayName: 'Push Docker image to Docker Hub'
+        timeout 300 go test ./tests/integration -v -timeout 240s
+      workingDirectory: backend
+      displayName: 'Run Go integration tests'
 
-- script: |
-    docker rmi $(imageName):$(appVersion) 2>/dev/null || true
-    docker image prune -f
-  displayName: 'Cleanup'
-  condition: always()
+      
+- stage: Push
+  displayName: '🚀 Push to Docker Hub'
+  dependsOn: IntegrationTest
+  condition: succeeded()
+  jobs:
+  - job: Push
+    displayName: 'Push image'
+    variables:
+      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
+    steps:
+    - task: Docker@2
+      inputs:
+        command: 'login'
+        containerRegistry: 'docker-hub-connection'
+      displayName: 'Login to Docker Hub'
+    
+    - task: Docker@2
+      inputs:
+        command: 'push'
+        repository: '$(imageName)'
+        tags: |
+          $(AppVersion)
+          latest
+      displayName: 'Push Docker image'
 
+- stage: Cleanup
+  displayName: '🧹 Cleanup'
+  dependsOn: Push
+  jobs:
+  - job: Cleanup
+    displayName: 'Cleanup'
+    variables:
+      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
+    steps:
+    - script: |
+        docker rmi $(imageName):$(AppVersion) 2>/dev/null || true
+        docker rmi $(imageName):latest 2>/dev/null || true
+        docker image prune -f
+      displayName: 'Remove images'
+      condition: always()
