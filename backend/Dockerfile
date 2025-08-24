@@ -18,4 +18,14 @@ FROM alpine:latest
 
 ARG APP_VERSION="unknown"
 #meta-data
-LABEL version="${APP_VERSION}" 
+LABEL version="${APP_VERSION}"
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+COPY --from=builder /app/todolist-app ./
+COPY --from=builder /app/migrations ./migrations/
+COPY --from=builder /app/.env ./
+
+EXPOSE 8080
+CMD ["./todolist-app"]
