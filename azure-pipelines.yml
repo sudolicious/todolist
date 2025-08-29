@@ -9,7 +9,7 @@ pool: Default
 
 variables:
   imageName: 'sudolicious1/todolist-backend'
-
+  
 stages:
 - stage: GetVersion
   displayName: '🔖 Get Version'
@@ -26,8 +26,9 @@ stages:
     - script: |
         VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable MajorMinorPatch)
         FULL_VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable FullSemVer)
+        CURRENT_DATE=$(date +%Y%m%d)
 
-        echo "##vso[build.updatebuildnumber]$(Date:yyyyMMdd)-$VERSION-$(Rev:r)"
+        echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
         echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
         echo "##vso[task.setvariable variable=FullVersion;isOutput=true]$FULL_VERSION"
 
@@ -36,9 +37,34 @@ stages:
       name: setVersion
       displayName: 'Get version using GitVersion'
 
+- stage: SecurityScan
+  displayName: '🔒 Security Scan'
+  dependsOn: GetVersion
+  jobs:
+  - job: SecurityScan
+    displayName: 'Basic Security Checks'
+    steps:
+    - checkout: self
+
+    - script: |
+        echo "Running security checks..."
+        
+        echo "Running gosec security scan..."
+        gosec -no-fail -exclude-dir=test_integration ./...
+        
+        echo "Running go vet..."
+        go vet ./...
+        
+        echo "Verifying dependencies..."
+        go mod verify
+        
+        echo "✅ Security scan completed"
+      displayName: 'Run security scans'
+      workingDirectory: backend
+
 - stage: Build
   displayName: '🏗️ Build Docker Image'
-  dependsOn: GetVersion
+  dependsOn: SecurityScan
   jobs:
   - job: Build
     displayName: 'Build image'
@@ -66,46 +92,80 @@ stages:
       displayName: 'Build Docker image'
 
 - stage: IntegrationTest
-  displayName: '🧪 Integration Tests with Postgres'
+  displayName: '🧪 Integration Test'
   dependsOn: Build
   jobs:
-  - job: IntegrationTests
-    displayName: 'Run integration tests'
+  - job: TestBackend
+    displayName: 'Integration Tests'
     variables:
       AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
-    services:
-      postgres: 
-        image: postgres:15
-        env:
-          POSTGRES_USER: $(dbUser)
-          POSTGRES_PASSWORD: $(dbPassword)
-          POSTGRES_DB: $(dbName)
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U $(dbUser)"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
     steps:
     - checkout: self
 
     - script: |
-        echo "Running integration tests with database..."
-        echo "DB: $(dbUser)@localhost:5432/$(dbName)"
+        echo "Cleaning up any existing PostgreSQL container..."
+        docker stop test-postgres 2>/dev/null || true
+        docker rm test-postgres 2>/dev/null || true
         
-        export DB_HOST=localhost
-        export DB_USER=$(dbUser)
-        export DB_PASSWORD=$(dbPassword)
-        export DB_NAME=$(dbName)
-        export DB_PORT=$(dbPort)
-        export DB_SSL_MODE=disable
+        echo "Starting fresh PostgreSQL container..."
+        docker run --name test-postgres \
+          -e POSTGRES_USER=$(dbUser) \
+          -e POSTGRES_PASSWORD=$(dbPassword) \
+          -e POSTGRES_DB=$(dbName) \
+          -p $(dbPort):5432 \
+          -d postgres:15
+      displayName: 'Start PostgreSQL'
 
-        timeout 300 go test ./tests/integration -v -timeout 240s
+    - script: |
+        echo "Waiting for PostgreSQL to start..."
+        for i in {1..20}; do
+          if docker inspect test-postgres --format='{{.State.Running}}' | grep -q 'true'; then
+            if docker exec test-postgres pg_isready -U $(dbUser) 2>/dev/null; then
+              echo "✅ PostgreSQL is ready!"
+              exit 0
+            fi
+          fi
+          echo "Waiting for PostgreSQL... $i seconds"
+          sleep 1
+        done
+
+        echo "❌ PostgreSQL startup failed"
+        echo "Container logs:"
+        docker logs test-postgres || true
+        exit 1
+      displayName: 'Check PostgreSQL readiness'
+
+    - script: |
+        echo "Building backend application..."
+        go build -o todolist-app .
+        
+        echo "Starting application..."
+        DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) DB_SSL_MODE=$(dbSslMode) ./todolist-app &
+        APP_PID=$!
+        echo $APP_PID > app.pid
+        
+        echo "Waiting for app to start..."
+        sleep 5
+      displayName: 'Build and start backend'
       workingDirectory: backend
-      displayName: 'Run Go integration tests'
 
-      
+    - script: |
+        echo "Running integration tests..."
+        DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) go test -v -tags=integration ./test_integration/ -timeout 30s
+      displayName: 'Run health check test'
+      workingDirectory: backend
+
+    - script: |
+        echo "Stopping application..."
+        kill $(cat app.pid) 2>/dev/null || true
+        
+        echo "Stopping PostgreSQL..."
+        docker stop test-postgres 2>/dev/null || true
+        docker rm test-postgres 2>/dev/null || true
+      displayName: 'Cleanup'
+      condition: always()
+      workingDirectory: backend
+
 - stage: Push
   displayName: '🚀 Push to Docker Hub'
   dependsOn: IntegrationTest
