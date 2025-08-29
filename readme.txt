@@ -37,8 +37,11 @@ Installation and Setup.
     go mod download
     go run main.go
     API: http://localhost:8080/api/tasks
+    
+    4. Start tests:
+    go test -v -tags=integration ./test_integration/ -timeout 30s
 
-    4. Start the frontend
+    5. Start the frontend
     cd frontend
     npm install
     npm run build

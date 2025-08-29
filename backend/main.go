@@ -27,7 +27,7 @@ type Task struct {
 	CreatedAt *time.Time `json:"created_at"`
 }
 
-func addTask(db *sql.DB, title string) (*Task, error) {
+func AddTask(db *sql.DB, title string) (*Task, error) {
 	var task Task
 	err := db.QueryRow(
 		"INSERT INTO tasks (title) VALUES ($1) RETURNING id, title, done, created_at", title,
@@ -35,7 +35,7 @@ func addTask(db *sql.DB, title string) (*Task, error) {
 	return &task, err
 }
 
-func getAllTasks(db *sql.DB) ([]Task, error) {
+func GetAllTasks(db *sql.DB) ([]Task, error) {
 	rows, err := db.Query(`SELECT id, title, done, created_at FROM tasks ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -54,12 +54,12 @@ func getAllTasks(db *sql.DB) ([]Task, error) {
 	return tasks, nil
 }
 
-func completeTask(db *sql.DB, id int) error {
+func CompleteTask(db *sql.DB, id int) error {
 	_, err := db.Exec("UPDATE tasks SET done = TRUE WHERE id = $1", id)
 	return err
 }
 
-func deleteTask(db *sql.DB, id int) error {
+func DeleteTask(db *sql.DB, id int) error {
 	_, err := db.Exec("DELETE FROM tasks WHERE id = $1", id)
 	return err
 }
@@ -123,7 +123,7 @@ func main() {
 
 	// Set HTTP Router
 	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
-		tasks, err := getAllTasks(db)
+		tasks, err := GetAllTasks(db)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -153,7 +153,7 @@ func main() {
 			return
 		}
 
-		task, err := addTask(db, title)
+		task, err := AddTask(db, title)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -178,7 +178,7 @@ func main() {
 			return
 		}
 
-		if err = completeTask(db, id); err != nil {
+		if err = CompleteTask(db, id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -220,7 +220,7 @@ func main() {
 			http.Error(w, "Invalid task ID", http.StatusBadRequest)
 			return
 		}
-		if err = deleteTask(db, id); err != nil {
+		if err = DeleteTask(db, id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
