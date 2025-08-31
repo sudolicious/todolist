@@ -1,4 +1,4 @@
-name: $(Date:yyyyMMdd)-$(GitVersion.MajorMinorPatch)
+name: $(Date:yyyyMMdd)-$(GitVersion.MajorMinorPatch)-$(Rev:.r)
 
 trigger:
   branches:
@@ -28,7 +28,7 @@ stages:
         FULL_VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable FullSemVer)
         CURRENT_DATE=$(date +%Y%m%d)
 
-        echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}"
+        echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
         echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
         echo "APP_VERSION=$VERSION" > $(Build.SourcesDirectory)/version.env
         
@@ -83,8 +83,9 @@ stages:
 
     - script: |
         source $(Pipeline.Workspace)/version-info/version.env
+        echo "##vso[task.setvariable variable=DockerAppVersion]$APP_VERSION"
         echo "Building version: $APP_VERSION"
-      displayName: 'Display version'
+      displayName: 'Set Docker version variable'
 
     - task: Docker@2
       inputs:
@@ -99,12 +100,10 @@ stages:
         dockerfile: 'backend/Dockerfile'
         buildContext: 'backend'
         tags: |
-          $APP_VERSION
+          $(DockerAppVersion)
           latest
-        arguments: '--build-arg APP_VERSION=$APP_VERSION'
+        arguments: '--build-arg APP_VERSION=$(DockerAppVersion)'
       displayName: 'Build Docker image'
-      env:
-        APP_VERSION: $(APP_VERSION)
 
 - stage: IntegrationTest
   displayName: '🧪 Integration Test'
@@ -188,8 +187,9 @@ stages:
 
     - script: |
         source $(Pipeline.Workspace)/version-info/version.env
+        echo "##vso[task.setvariable variable=DockerAppVersion]$APP_VERSION"
         echo "Pushing version: $APP_VERSION"
-      displayName: 'Display version'
+      displayName: 'Set Docker version variable'
 
     - task: Docker@2
       inputs:
@@ -202,11 +202,9 @@ stages:
         command: 'push'
         repository: '$(imageName)'
         tags: |
-          $APP_VERSION
+          $(DockerAppVersion)
           latest
       displayName: 'Push Docker image'
-      env:
-        APP_VERSION: $(APP_VERSION)
 
 - stage: Cleanup
   displayName: '🧹 Cleanup'
