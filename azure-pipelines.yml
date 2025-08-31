@@ -29,22 +29,27 @@ stages:
         CURRENT_DATE=$(date +%Y%m%d)
 
         echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}"
-        echo "##vso[task.setvariable variable=AppVersion]$VERSION"
-        echo "##vso[task.setvariable variable=FullVersion]$FULL_VERSION"
+        echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
+        echo "##vso[task.setvariable variable=FullVersion;isOutput=true]$FULL_VERSION"
 
         echo "Detected AppVersion: $VERSION"
         echo "Detected FullVersion: $FULL_VERSION"
+      name: setVersion
       displayName: 'Get version using GitVersion'
 
 - stage: SecurityScan
   displayName: '🔒 Security Scan'
   dependsOn: GetVersion
+  variables:
+    AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
+    FullVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.FullVersion'] ]
   jobs:
   - job: SecurityScan
     displayName: 'Basic Security Checks'
     steps:
     - checkout: self
     - script: |
+        echo "Running security scan for version: $(AppVersion)"
         echo "Running gosec security scan..."
         gosec -no-fail -exclude-dir=test_integration ./...
 
@@ -61,6 +66,9 @@ stages:
 - stage: Build
   displayName: '🏗️ Build Docker Image'
   dependsOn: SecurityScan
+  variables:
+    AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
+    FullVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.FullVersion'] ]
   jobs:
   - job: Build
     displayName: 'Build image'
@@ -91,6 +99,9 @@ stages:
 - stage: IntegrationTest
   displayName: '🧪 Integration Test'
   dependsOn: Build
+  variables:
+    AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
+    FullVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.FullVersion'] ]
   jobs:
   - job: TestBackend
     displayName: 'Integration Tests'
@@ -164,6 +175,9 @@ stages:
   displayName: '🚀 Push to Docker Hub'
   dependsOn: IntegrationTest
   condition: succeeded()
+  variables:
+    AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
+    FullVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.FullVersion'] ]
   jobs:
   - job: Push
     displayName: 'Push image'
@@ -189,6 +203,9 @@ stages:
 - stage: Cleanup
   displayName: '🧹 Cleanup'
   dependsOn: Push
+  variables:
+    AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
+    FullVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.FullVersion'] ]
   jobs:
   - job: Cleanup
     displayName: 'Cleanup'
@@ -199,4 +216,3 @@ stages:
         docker image prune -f
       displayName: 'Remove images'
       condition: always()
-
