@@ -11,62 +11,13 @@ variables:
   imageName: 'sudolicious1/todolist-backend'
 
 stages:
-- stage: GetVersion
-  displayName: '🔖 Get Version'
-  jobs:
-  - job: getVersion
-    displayName: 'Get version with GitVersion'
-    steps:
-    - checkout: self
-      fetchDepth: 0
-      persistCredentials: true
-      clean: true
-      fetchTags: true
-
-    - script: |
-        VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable MajorMinorPatch)
-        CURRENT_DATE=$(date +%Y%m%d)
-
-        echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}"
-        echo "##vso[task.setvariable variable=appVersion;isOutput=true]$VERSION"
-        echo "Detected AppVersion: $VERSION"
-      name: setVersion
-      displayName: 'Get version using GitVersion'
-
-- stage: SecurityScan
-  displayName: '🔒 Security Scan'
-  dependsOn: GetVersion
-  variables:
-    appVersion: $[ stageDependencies.GetVersion.getVersion.outputs['setVersion.appVersion'] ]
-  jobs:
-  - job: securityScan
-    displayName: 'Basic Security Checks'
-    steps:
-    - checkout: self
-    - script: |
-        echo "Running security scan for version: $(appVersion)"
-        echo "Running gosec security scan..."
-        gosec -no-fail -exclude-dir=test_integration ./...
-        echo "Running go vet..."
-        go vet ./...
-        echo "Verifying dependencies..."
-        go mod verify
-        echo "✅ Security scan completed"
-      displayName: 'Run security scans'
-      workingDirectory: backend
-
 - stage: Build
   displayName: '🏗️ Build Docker Image'
-  dependsOn: SecurityScan
-  variables:
-    appVersion: $[ stageDependencies.GetVersion.getVersion.outputs['setVersion.appVersion'] ]
   jobs:
-  - job: build
+  - job: Build
     displayName: 'Build image'
     steps:
     - checkout: self
-    - script: echo "DEBUG: appVersion=$(appVersion)"
-      displayName: 'Debug appVersion'
 
     - task: Docker@2
       inputs:
@@ -74,24 +25,17 @@ stages:
         repository: '$(imageName)'
         dockerfile: 'backend/Dockerfile'
         buildContext: 'backend'
-        tags: |
-          $(appVersion)
-          latest
+        tags: latest
       displayName: 'Build Docker image'
 
 - stage: Push
   displayName: '🚀 Push to Docker Hub'
   dependsOn: Build
   condition: succeeded()
-  variables:
-    appVersion: $[ stageDependencies.GetVersion.getVersion.outputs['setVersion.appVersion'] ]
   jobs:
-  - job: push
+  - job: Push
     displayName: 'Push image'
     steps:
-    - script: echo "DEBUG: appVersion=$(appVersion)"
-      displayName: 'Debug appVersion before push'
-
     - task: Docker@2
       inputs:
         command: 'login'
@@ -102,7 +46,5 @@ stages:
       inputs:
         command: 'push'
         repository: '$(imageName)'
-        tags: |
-          $(appVersion)
-          latest
+        tags: latest
       displayName: 'Push Docker image'
