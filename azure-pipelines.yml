@@ -37,42 +37,55 @@ stages:
       name: setVersion
       displayName: 'Get version using GitVersion'
 
+    - publish: version.env
+      artifact: version-info
+      displayName: 'Publish version info'
+
+# 🔒 Security Scan
 - stage: SecurityScan
   displayName: '🔒 Security Scan'
   dependsOn: GetVersion
   jobs:
   - job: SecurityScan
-    displayName: 'Basic Security Checks'
     steps:
     - checkout: self
 
+    - download: current
+      artifact: version-info
+
+    - script: |
+        source version-info/version.env
+        echo "##vso[task.setvariable variable=APP_VERSION]$APP_VERSION"
+        echo "AppVersion resolved: $(APP_VERSION)"
+      displayName: 'Load version variable'
+
     - script: |
         echo "Running security checks..."
-        
-        echo "Running gosec security scan..."
         gosec -no-fail -exclude-dir=test_integration ./...
-        
-        echo "Running go vet..."
         go vet ./...
-        
-        echo "Verifying dependencies..."
         go mod verify
-        
         echo "✅ Security scan completed"
       displayName: 'Run security scans'
       workingDirectory: backend
 
+# 🏗️ Build
 - stage: Build
   displayName: '🏗️ Build Docker Image'
   dependsOn: SecurityScan
   jobs:
   - job: Build
-    displayName: 'Build image'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
     steps:
     - checkout: self
-    
+
+    - download: current
+      artifact: version-info
+
+    - script: |
+        source version-info/version.env
+        echo "##vso[task.setvariable variable=APP_VERSION]$APP_VERSION"
+        echo "Building version: $(APP_VERSION)"
+      displayName: 'Load version variable'
+
     - task: Docker@2
       inputs:
         command: 'login'
@@ -86,30 +99,33 @@ stages:
         dockerfile: 'backend/Dockerfile'
         buildContext: 'backend'
         tags: |
-          $(AppVersion)
+          $(APP_VERSION)
           latest
-        arguments: '--build-arg APP_VERSION=$(AppVersion)'
+        arguments: '--build-arg APP_VERSION=$(APP_VERSION)'
       displayName: 'Build Docker image'
 
+# 🧪 Integration Test
 - stage: IntegrationTest
   displayName: '🧪 Integration Test'
   dependsOn: Build
   jobs:
   - job: TestBackend
-    displayName: 'Integration Tests'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
     steps:
     - checkout: self
 
-    - script: echo "Resolved AppVersion = $(AppVersion)"
+    - download: current
+      artifact: version-info
 
     - script: |
-        echo "Cleaning up any existing PostgreSQL container..."
+        source version-info/version.env
+        echo "##vso[task.setvariable variable=APP_VERSION]$APP_VERSION"
+        echo "Testing version: $(APP_VERSION)"
+      displayName: 'Load version variable'
+
+    - script: |
         docker stop test-postgres 2>/dev/null || true
         docker rm test-postgres 2>/dev/null || true
         
-        echo "Starting fresh PostgreSQL container..."
         docker run --name test-postgres \
           -e POSTGRES_USER=$(dbUser) \
           -e POSTGRES_PASSWORD=$(dbPassword) \
@@ -119,7 +135,6 @@ stages:
       displayName: 'Start PostgreSQL'
 
     - script: |
-        echo "Waiting for PostgreSQL to start..."
         for i in {1..20}; do
           if docker inspect test-postgres --format='{{.State.Running}}' | grep -q 'true'; then
             if docker exec test-postgres pg_isready -U $(dbUser) 2>/dev/null; then
@@ -130,54 +145,50 @@ stages:
           echo "Waiting for PostgreSQL... $i seconds"
           sleep 1
         done
-
         echo "❌ PostgreSQL startup failed"
-        echo "Container logs:"
         docker logs test-postgres || true
         exit 1
       displayName: 'Check PostgreSQL readiness'
 
     - script: |
-        echo "Building backend application..."
         go build -o todolist-app .
-        
-        echo "Starting application..."
         DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) DB_SSL_MODE=$(dbSslMode) ./todolist-app &
         APP_PID=$!
         echo $APP_PID > app.pid
-        
-        echo "Waiting for app to start..."
         sleep 5
       displayName: 'Build and start backend'
       workingDirectory: backend
 
     - script: |
-        echo "Running integration tests..."
         DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) go test -v -tags=integration ./test_integration/ -timeout 30s
       displayName: 'Run health check test'
       workingDirectory: backend
 
     - script: |
-        echo "Stopping application..."
         kill $(cat app.pid) 2>/dev/null || true
-        
-        echo "Stopping PostgreSQL..."
         docker stop test-postgres 2>/dev/null || true
         docker rm test-postgres 2>/dev/null || true
       displayName: 'Cleanup'
       condition: always()
       workingDirectory: backend
 
+# 🚀 Push
 - stage: Push
   displayName: '🚀 Push to Docker Hub'
   dependsOn: IntegrationTest
   condition: succeeded()
   jobs:
   - job: Push
-    displayName: 'Push image'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
     steps:
+    - download: current
+      artifact: version-info
+
+    - script: |
+        source version-info/version.env
+        echo "##vso[task.setvariable variable=APP_VERSION]$APP_VERSION"
+        echo "Pushing version: $(APP_VERSION)"
+      displayName: 'Load version variable'
+
     - task: Docker@2
       inputs:
         command: 'login'
@@ -189,22 +200,30 @@ stages:
         command: 'push'
         repository: '$(imageName)'
         tags: |
-          $(AppVersion)
+          $(APP_VERSION)
           latest
       displayName: 'Push Docker image'
 
+# 🧹 Cleanup
 - stage: Cleanup
   displayName: '🧹 Cleanup'
   dependsOn: Push
   jobs:
   - job: Cleanup
-    displayName: 'Cleanup'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersionJob.outputs['setVersion.AppVersion'] ]
     steps:
+    - download: current
+      artifact: version-info
+
     - script: |
-        docker rmi $(imageName):$(AppVersion) 2>/dev/null || true
+        source version-info/version.env
+        echo "##vso[task.setvariable variable=APP_VERSION]$APP_VERSION"
+        echo "Cleaning version: $(APP_VERSION)"
+      displayName: 'Load version variable'
+
+    - script: |
+        docker rmi $(imageName):$(APP_VERSION) 2>/dev/null || true
         docker rmi $(imageName):latest 2>/dev/null || true
         docker image prune -f
       displayName: 'Remove images'
       condition: always()
+
