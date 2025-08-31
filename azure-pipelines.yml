@@ -1,4 +1,4 @@
-name: $(Date:yyyyMMdd)-$(GitVersion.MajorMinorPatch)
+name: $(Date:yyyyMMdd)
 
 trigger:
   branches:
