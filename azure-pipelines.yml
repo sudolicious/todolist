@@ -11,13 +11,34 @@ variables:
   imageName: 'sudolicious1/todolist-backend'
 
 stages:
+- stage: GetVersion
+  displayName: '🔖 Get Version'
+  jobs:
+  - job: GetVersion
+    displayName: 'Get version'
+    steps:
+    - checkout: self
+      fetchDepth: 0
+
+    - script: |
+        echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
+        echo "Version: $VERSION"
+      name: SetVersion
+      displayName: 'Set version'
+
 - stage: Build
   displayName: '🏗️ Build Docker Image'
+  dependsOn: GetVersion
   jobs:
   - job: Build
     displayName: 'Build image'
+    variables:
+      version: $[ stageDependencies.GetVersion.GetVersion.outputs['SetVersion.AppVersion'] ]
     steps:
     - checkout: self
+
+    - script: echo "Building version: $(version)"
+      displayName: 'Debug version'
 
     - task: Docker@2
       inputs:
@@ -25,7 +46,9 @@ stages:
         repository: '$(imageName)'
         dockerfile: 'backend/Dockerfile'
         buildContext: 'backend'
-        tags: latest
+        tags: |
+          $(version)
+          latest
       displayName: 'Build Docker image'
 
 - stage: Push
@@ -35,7 +58,12 @@ stages:
   jobs:
   - job: Push
     displayName: 'Push image'
+    variables:
+      version: $[ stageDependencies.GetVersion.GetVersion.outputs['SetVersion.AppVersion'] ]
     steps:
+    - script: echo "Pushing version: $(version)"
+      displayName: 'Debug version'
+
     - task: Docker@2
       inputs:
         command: 'login'
@@ -46,5 +74,7 @@ stages:
       inputs:
         command: 'push'
         repository: '$(imageName)'
-        tags: latest
+        tags: |
+          $(version)
+          latest
       displayName: 'Push Docker image'
