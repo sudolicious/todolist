@@ -39,7 +39,7 @@ stages:
 
 - stage: SecurityScan
   displayName: '🔒 Security Scan'
-  dependsOn: GetVersionJob
+  dependsOn: GetVersion
   jobs:
   - job: SecurityScan
     displayName: 'Basic Security Checks'
