@@ -14,7 +14,7 @@ stages:
 - stage: GetVersion
   displayName: '🔖 Get Version'
   jobs:
-  - job: GetVersion
+  - job: GetVersionJob
     displayName: 'Get version with GitVersion'
     steps:
     - checkout: self
