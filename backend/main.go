@@ -15,10 +15,83 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 )
 
-const Version = "1.0.1"
+const Version = "1.0.2"
+
+// Metrics
+var (
+	tasksCreated = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "todolist_tasks_created_total",
+		Help: "Total number of tasks created",
+	})
+
+	tasksCompleted = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "todolist_tasks_completed_total",
+		Help: "Total number of tasks completed",
+	})
+
+	tasksDeleted = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "todolist_tasks_deleted_total",
+		Help: "Total number of tasks deleted",
+	})
+
+	tasksTotal = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "todolist_tasks_total",
+		Help: "Current total number of tasks",
+	})
+
+	activeTasks = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "todolist_tasks_active",
+		Help: "Current number of active (not completed) tasks",
+	})
+
+	completedTasks = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "todolist_tasks_completed",
+		Help: "Current number of completed tasks",
+	})
+
+	httpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "todolist_http_requests_total",
+		Help: "Total number of HTTP requests",
+	}, []string{"method", "endpoint", "status"})
+
+	httpRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "todolist_http_request_duration_seconds",
+		Help:    "HTTP request duration in seconds",
+		Buckets: []float64{0.1, 0.3, 0.5, 1, 2, 5},
+	}, []string{"method", "endpoint"})
+)
+
+// Middleware for HTTP requests
+func prometheusMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		
+		next.ServeHTTP(ww, r)
+		
+		duration := time.Since(start).Seconds()
+		endpoint := r.URL.Path
+		
+		httpRequestsTotal.WithLabelValues(r.Method, endpoint, strconv.Itoa(ww.statusCode)).Inc()
+		httpRequestDuration.WithLabelValues(r.Method, endpoint).Observe(duration)
+	})
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
 
 type Task struct {
 	ID        int        `json:"id"`
@@ -32,6 +105,10 @@ func AddTask(db *sql.DB, title string) (*Task, error) {
 	err := db.QueryRow(
 		"INSERT INTO tasks (title) VALUES ($1) RETURNING id, title, done, created_at", title,
 	).Scan(&task.ID, &task.Title, &task.Done, &task.CreatedAt)
+	if err == nil {
+		tasksCreated.Inc()
+		updateTaskMetrics(db)
+	}
 	return &task, err
 }
 
@@ -56,12 +133,47 @@ func GetAllTasks(db *sql.DB) ([]Task, error) {
 
 func CompleteTask(db *sql.DB, id int) error {
 	_, err := db.Exec("UPDATE tasks SET done = TRUE WHERE id = $1", id)
+	if err == nil {
+		tasksCompleted.Inc()
+		updateTaskMetrics(db)
+	}
 	return err
 }
 
 func DeleteTask(db *sql.DB, id int) error {
 	_, err := db.Exec("DELETE FROM tasks WHERE id = $1", id)
+	if err == nil {
+		tasksDeleted.Inc()
+		updateTaskMetrics(db)
+	}
 	return err
+}
+
+// Upgrade metrics (amount of tasks)
+func updateTaskMetrics(db *sql.DB) {
+	var total, active, completed int
+	
+	err := db.QueryRow("SELECT COUNT(*) FROM tasks").Scan(&total)
+	if err != nil {
+		log.Printf("Error getting total tasks count: %v", err)
+		return
+	}
+	
+	err = db.QueryRow("SELECT COUNT(*) FROM tasks WHERE done = FALSE").Scan(&active)
+	if err != nil {
+		log.Printf("Error getting active tasks count: %v", err)
+		return
+	}
+	
+	err = db.QueryRow("SELECT COUNT(*) FROM tasks WHERE done = TRUE").Scan(&completed)
+	if err != nil {
+		log.Printf("Error getting completed tasks count: %v", err)
+		return
+	}
+	
+	tasksTotal.Set(float64(total))
+	activeTasks.Set(float64(active))
+	completedTasks.Set(float64(completed))
 }
 
 func runMigrations(db *sql.DB) error {
@@ -85,12 +197,11 @@ func runMigrations(db *sql.DB) error {
 }
 
 func main() {
-
 	if err := godotenv.Load(); err != nil {
 		log.Println("Warning: No .env file found")
 	}
 
-	//Connection to PostgreSql
+	// Connection to PostgreSQL
 	connStr := fmt.Sprintf(
 		"host=%s user=%s dbname=%s password=%s sslmode=disable",
 		os.Getenv("DB_HOST"),
@@ -104,21 +215,34 @@ func main() {
 	}
 	defer db.Close()
 
-	//Check the connection
+	// Check the connection
 	err = db.Ping()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Successfully connected to PostgreSql!")
+	fmt.Println("Successfully connected to PostgreSQL!")
 
-	//Migration func
+	// Migration func
 	if err := runMigrations(db); err != nil {
 		log.Fatal("Migration error:", err)
 	}
 	fmt.Println("Migration applied successfully")
 
-	//Create Router
+	// Update metrics when app starts
+	updateTaskMetrics(db)
+
+	// Router for metrics
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+
+	// Run server of metrics on port 9090
+	go func() {
+		fmt.Println("Metrics server running on http://localhost:9090")
+		log.Fatal(http.ListenAndServe(":9090", metricsMux))
+	}()
+
+	// Create Router
 	mux := http.NewServeMux()
 
 	// Set HTTP Router
@@ -128,10 +252,7 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// JSON output usinq encoding
 		w.Header().Set("Content-Type", "application/json")
-
-		// cashing
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
@@ -160,7 +281,6 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(task)
 	})
@@ -170,7 +290,6 @@ func main() {
 			http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		// get id from URL and convert string
 		idStr := r.FormValue("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
@@ -227,16 +346,28 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	//Set CORS
+	// Add endpoint for metrics
+	mux.HandleFunc("/api/metrics/health", func(w http.ResponseWriter, r *http.Request) {
+		metricsHealth := map[string]interface{}{
+			"status":    "ok",
+			"metrics":   "enabled",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"endpoints": map[string]string{
+				"prometheus": "http://localhost:9090/metrics",
+				"health":     "/health",
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(metricsHealth)
+	})
+
+	// Set CORS
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"http://localhost:3000", "http://127.0.0.1:3000"},
 		AllowOriginFunc: func(origin string) bool {
-
-			// Allow requests with no Origin (for curl)
 			if origin == "" {
 				return true
 			}
-
 			for _, allowedOrigin := range []string{"http://localhost:3000", "http://127.0.0.1:3000"} {
 				if origin == allowedOrigin {
 					return true
@@ -244,20 +375,20 @@ func main() {
 			}
 			return false
 		},
-
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
 		Debug:            true,
 	})
 
-	// Wrap the router with CORS middleware
-	handler := c.Handler(mux)
+	// Add middleware for HTTP requests
+	handlerWithMetrics := prometheusMiddleware(mux)
 
-	fs := http.FileServer(http.Dir("./frontend/build"))
-	mux.Handle("/", http.StripPrefix("/", fs))
+	// Wrap the router with CORS middleware
+	handler := c.Handler(handlerWithMetrics)
 
 	// Start server
 	fmt.Println("Server running on http://localhost:8080")
+	fmt.Println("Metrics available on http://localhost:9090/metrics")
 	log.Fatal(http.ListenAndServe(":8080", handler))
 }
