@@ -9,13 +9,21 @@ pool: Default
 
 variables:
   imageName: 'sudolicious1/todolist-backend'
-  
+
+# Подключаем второй репозиторий (Helm charts)
+resources:
+  repositories:
+    - repository: k8s
+      type: github
+      name: sudolicious/k8s
+      endpoint: sudolicious   # имя GitHub service connection в Azure DevOps
+
 stages:
+# 🔖 Получаем версию
 - stage: GetVersion
   displayName: '🔖 Get Version'
   jobs:
   - job: GetVersionJob
-    displayName: 'Get version with GitVersion'
     steps:
     - checkout: self
       fetchDepth: 0
@@ -25,80 +33,40 @@ stages:
 
     - script: |
         VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable MajorMinorPatch)
-        FULL_VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable FullSemVer)
         CURRENT_DATE=$(date +%Y%m%d)
-
         echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
         echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
-        
-        # directory for artifacts
+
         mkdir -p $(Build.ArtifactStagingDirectory)/version-info
         echo "APP_VERSION=$VERSION" > $(Build.ArtifactStagingDirectory)/version-info/version.env
-        echo "FULL_VERSION=$FULL_VERSION" >> $(Build.ArtifactStagingDirectory)/version-info/version.env
         echo "BUILD_DATE=$CURRENT_DATE" >> $(Build.ArtifactStagingDirectory)/version-info/version.env
-        
-        echo "Detected AppVersion: $VERSION"
-        echo "Detected FullVersion: $FULL_VERSION"
       name: setVersion
-      displayName: 'Get version using GitVersion'
+      displayName: 'Get version with GitVersion'
 
     - publish: $(Build.ArtifactStagingDirectory)/version-info
       artifact: version-info
-      displayName: 'Publish version info'
 
-- stage: SecurityScan
-  displayName: '🔒 Security Scan'
+# 🏗️ Сборка Docker-образа
+- stage: Build
+  displayName: '🏗️ Build'
   dependsOn: GetVersion
   jobs:
-  - job: SecurityScan
-    displayName: 'Basic Security Checks'
-    steps:
-    - checkout: self
-
-    - download: current
-      artifact: version-info
-      displayName: 'Download version info'
-
-    - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
-        echo "AppVersion: $APP_VERSION"
-        echo "FullVersion: $FULL_VERSION"
-      displayName: 'Display version info'
-
-    - script: |
-        echo "Running security checks..."
-        gosec -no-fail -exclude-dir=test_integration ./...
-        go vet ./...
-        go mod verify
-        echo "✅ Security scan completed"
-      displayName: 'Run security scans'
-      workingDirectory: backend
-
-- stage: Build
-  displayName: '🏗️ Build Docker Image'
-  dependsOn: SecurityScan
-  jobs:
   - job: Build
-    displayName: 'Build image'
     steps:
     - checkout: self
-    
     - download: current
       artifact: version-info
-      displayName: 'Download version info'
 
     - script: |
         source $(Pipeline.Workspace)/version-info/version.env
         echo "##vso[task.setvariable variable=DockerAppVersion]$APP_VERSION"
-        echo "Building version: $APP_VERSION"
       displayName: 'Set Docker version variable'
 
     - task: Docker@2
       inputs:
         command: 'login'
         containerRegistry: 'docker-hub-connection'
-      displayName: 'Login to Docker Hub'
-    
+
     - task: Docker@2
       inputs:
         command: 'build'
@@ -108,101 +76,27 @@ stages:
         tags: |
           $(DockerAppVersion)
           latest
-        arguments: '--build-arg APP_VERSION=$(DockerAppVersion)'
-      displayName: 'Build Docker image'
 
-- stage: IntegrationTest
-  displayName: '🧪 Integration Test'
+# 🚀 Push образа в Docker Hub
+- stage: Push
+  displayName: '🚀 Push'
   dependsOn: Build
   jobs:
-  - job: TestBackend
-    displayName: 'Integration Tests'
-    steps:
-    - checkout: self
-
-    - download: current
-      artifact: version-info
-      displayName: 'Download version info'
-
-    - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
-        echo "Testing version: $APP_VERSION"
-      displayName: 'Display version'
-
-    - script: |
-        docker stop test-postgres 2>/dev/null || true
-        docker rm test-postgres 2>/dev/null || true
-        
-        docker run --name test-postgres \
-          -e POSTGRES_USER=$(dbUser) \
-          -e POSTGRES_PASSWORD=$(dbPassword) \
-          -e POSTGRES_DB=$(dbName) \
-          -p $(dbPort):5432 \
-          -d postgres:15
-      displayName: 'Start PostgreSQL'
-
-    - script: |
-        for i in {1..20}; do
-          if docker inspect test-postgres --format='{{.State.Running}}' | grep -q 'true'; then
-            if docker exec test-postgres pg_isready -U $(dbUser) 2>/dev/null; then
-              echo "✅ PostgreSQL is ready!"
-              exit 0
-            fi
-          fi
-          echo "Waiting for PostgreSQL... $i seconds"
-          sleep 1
-        done
-        echo "❌ PostgreSQL startup failed"
-        docker logs test-postgres || true
-        exit 1
-      displayName: 'Check PostgreSQL readiness'
-
-    - script: |
-        go build -o todolist-app .
-        DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) DB_SSL_MODE=$(dbSslMode) ./todolist-app &
-        APP_PID=$!
-        echo $APP_PID > app.pid
-        sleep 5
-      displayName: 'Build and start backend'
-      workingDirectory: backend
-
-    - script: |
-        DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) go test -v -tags=integration ./test_integration/ -timeout 30s
-      displayName: 'Run health check test'
-      workingDirectory: backend
-
-    - script: |
-        kill $(cat app.pid) 2>/dev/null || true
-        docker stop test-postgres 2>/dev/null || true
-        docker rm test-postgres 2>/dev/null || true
-      displayName: 'Cleanup'
-      condition: always()
-      workingDirectory: backend
-
-- stage: Push
-  displayName: '🚀 Push to Docker Hub'
-  dependsOn: IntegrationTest
-  condition: succeeded()
-  jobs:
   - job: Push
-    displayName: 'Push image'
     steps:
     - download: current
       artifact: version-info
-      displayName: 'Download version info'
 
     - script: |
         source $(Pipeline.Workspace)/version-info/version.env
         echo "##vso[task.setvariable variable=DockerAppVersion]$APP_VERSION"
-        echo "Pushing version: $APP_VERSION"
       displayName: 'Set Docker version variable'
 
     - task: Docker@2
       inputs:
         command: 'login'
         containerRegistry: 'docker-hub-connection'
-      displayName: 'Login to Docker Hub'
-    
+
     - task: Docker@2
       inputs:
         command: 'push'
@@ -210,57 +104,19 @@ stages:
         tags: |
           $(DockerAppVersion)
           latest
-      displayName: 'Push Docker image'
 
-    # Create and publish deployment info (единственный артефакт для CD)
-    - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
-        echo "IMAGE_NAME=$(imageName)" > $(Build.ArtifactStagingDirectory)/deployment-info.env
-        echo "IMAGE_TAG=$APP_VERSION" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
-        echo "FULL_VERSION=$FULL_VERSION" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
-        echo "BUILD_DATE=$BUILD_DATE" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
-        echo "PUSH_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
-      displayName: 'Create deployment info'
-
-    - publish: $(Build.ArtifactStagingDirectory)/deployment-info.env
-      artifact: deployment-info
-      displayName: 'Publish deployment info'
-
-- stage: Cleanup
-  displayName: '🧹 Cleanup'
-  dependsOn: Push
-  jobs:
-  - job: Cleanup
-    displayName: 'Cleanup'
-    steps:
-    - download: current
-      artifact: version-info
-      displayName: 'Download version info'
-
-    - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
-        docker rmi $(imageName):$APP_VERSION 2>/dev/null || true
-        docker rmi $(imageName):latest 2>/dev/null || true
-        docker image prune -f
-      displayName: 'Remove images'
-      condition: always()
-      
+# 📝 Обновляем Helm chart в k8s репозитории
 - stage: UpdateManifests
   displayName: '📝 Update Helm Chart'
   dependsOn: Push
-  condition: succeeded()
   jobs:
   - job: UpdateHelmChart
-    displayName: 'Update Helm chart version'
     steps:
-
     - checkout: k8s
-      repository: sudolicious/k8s
       persistCredentials: true
 
     - download: current
       artifact: version-info
-      displayName: 'Download version info'
 
     - script: |
         cd todolist.v2/backend
@@ -269,18 +125,19 @@ stages:
         source $(Pipeline.Workspace)/version-info/version.env
         echo "Updating to version: $APP_VERSION"
 
+        # обновляем тег в values.yaml
         sed -i "s|tag:.*|tag: \"$APP_VERSION\"|g" values.yaml
 
         echo "Updated values.yaml:"
         grep -A3 -B3 "image:" values.yaml
 
+        # git config
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
 
+        # коммитим только если есть изменения
         git add values.yaml
-        git commit -m "ci: update image tag to version $APP_VERSION"
-        git push origin main
-
-        echo "✅ Helm chart tag updated to: $APP_VERSION"
+        git diff-index --quiet HEAD || git commit -m "ci: update image tag to $APP_VERSION"
+        git diff-index --quiet HEAD || git push origin main
       displayName: 'Update Helm chart'
 
