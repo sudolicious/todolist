@@ -218,37 +218,31 @@ stages:
   - job: UpdateHelm
     displayName: 'Update Helm chart version'
     variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['GetVersion.setVersion.AppVersion'] ]
+      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
     steps:
-    - checkout: self
+    # ✅ checkout k8s repo via service connection
+    - checkout: k8s
       persistCredentials: true
       clean: true
 
     - script: |
         echo "Updating Helm chart to version: $(AppVersion)"
         
-        # Проверим токен
-        echo "Token length: ${#SYSTEM_ACCESSTOKEN}"
-        echo "Token starts with: ${SYSTEM_ACCESSTOKEN:0:5}"
+        # Debug: make sure values.yaml exists
+        ls -R todolist.v2/backend || true
         
-        # Clone the k8s repository with manifests
-        git clone https://oauth2:$SYSTEM_ACCESSTOKEN@github.com/sudolicious/k8s.git k8s-repo
-        
-        cd k8s-repo
-        
-        # Update image tag in values.yaml
+        # Update image tag
         sed -i "s|tag:.*|tag: \"$(AppVersion)\"|g" todolist.v2/backend/values.yaml
         
-        # Configure git user for committing changes
+        # Git config
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
         
-        # Commit and push the updated values.yaml
+        # Commit & push
         git add todolist.v2/backend/values.yaml
-        git commit -m "ci: update image tag to version $(AppVersion)"
-        git push origin main
+        git commit -m "ci: update image tag to version $(AppVersion)" || echo "No changes to commit"
+        git push origin HEAD:main
         
         echo "✅ Helm chart tag updated to: $(AppVersion)"
       displayName: 'Update Helm chart version'
-      env:
-        SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
