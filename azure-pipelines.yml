@@ -218,7 +218,7 @@ stages:
   - job: UpdateHelm
     displayName: 'Update Helm chart version'
     variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
+      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['GetVersion.setVersion.AppVersion'] ]
     steps:
     - checkout: self
       persistCredentials: true
@@ -228,7 +228,7 @@ stages:
         echo "Updating Helm chart to version: $(AppVersion)"
         
         # Clone the k8s repository with manifests
-        git clone https://$(System.AccessToken)@github.com/sudolicious/k8s.git k8s-repo
+        git clone https://oauth2:$(SYSTEM_ACCESSTOKEN)@github.com/sudolicious/k8s.git k8s-repo
         
         cd k8s-repo
         
