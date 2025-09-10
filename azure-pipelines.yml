@@ -267,11 +267,10 @@ stages:
   - job: UpdateHelmChart
     displayName: 'Update Helm chart version'
     steps:
-    - checkout: k8s
+    - checkout: git://sudolicious/k8s@main 
       persistCredentials: true
       clean: true
       fetchDepth: 0
-      ref: main
 
     - download: current
       artifact: version-info
