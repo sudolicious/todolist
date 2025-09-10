@@ -30,14 +30,19 @@ stages:
 
         echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
         echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
-        echo "APP_VERSION=$VERSION" > $(Build.SourcesDirectory)/version.env
+        
+	#directory for artifacts
+        mkdir -p $(Build.ArtifactStagingDirectory)/version-info
+        echo "APP_VERSION=$VERSION" > $(Build.ArtifactStagingDirectory)/version-info/version.env
+        echo "FULL_VERSION=$FULL_VERSION" >> $(Build.ArtifactStagingDirectory)/version-info/version.env
+        echo "BUILD_DATE=$CURRENT_DATE" >> $(Build.ArtifactStagingDirectory)/version-info/version.env
         
         echo "Detected AppVersion: $VERSION"
         echo "Detected FullVersion: $FULL_VERSION"
       name: setVersion
       displayName: 'Get version using GitVersion'
 
-    - publish: $(Build.SourcesDirectory)/version.env
+    - publish: $(Build.ArtifactStagingDirectory)/version-info
       artifact: version-info
       displayName: 'Publish version info'
 
@@ -57,6 +62,7 @@ stages:
     - script: |
         source $(Pipeline.Workspace)/version-info/version.env
         echo "AppVersion: $APP_VERSION"
+        echo "FullVersion: $FULL_VERSION"
       displayName: 'Display version info'
 
     - script: |
@@ -104,6 +110,11 @@ stages:
           latest
         arguments: '--build-arg APP_VERSION=$(DockerAppVersion)'
       displayName: 'Build Docker image'
+
+    # Public Docker image as artifact for CD pipeline
+    - publish: $(Build.ArtifactStagingDirectory)
+      artifact: docker-image-info
+      displayName: 'Publish Docker image info'
 
 - stage: IntegrationTest
   displayName: '🧪 Integration Test'
@@ -205,6 +216,18 @@ stages:
           $(DockerAppVersion)
           latest
       displayName: 'Push Docker image'
+
+    # Publish information about pushed image
+    - script: |
+        source $(Pipeline.Workspace)/version-info/version.env
+        echo "IMAGE_NAME=$(imageName)" > $(Build.ArtifactStagingDirectory)/image-info.env
+        echo "IMAGE_TAG=$APP_VERSION" >> $(Build.ArtifactStagingDirectory)/image-info.env
+        echo "PUSH_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $(Build.ArtifactStagingDirectory)/image-info.env
+      displayName: 'Create image info'
+
+    - publish: $(Build.ArtifactStagingDirectory)/image-info.env
+      artifact: image-push-info
+      displayName: 'Publish image push info'
 
 - stage: Cleanup
   displayName: '🧹 Cleanup'
