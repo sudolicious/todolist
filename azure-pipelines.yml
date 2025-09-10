@@ -19,7 +19,7 @@ resources:
       endpoint: sudolicious 
 
 stages:
-# 🔖 Получаем версию
+# 🔖 Getting version
 - stage: GetVersion
   displayName: '🔖 Get Version'
   jobs:
@@ -267,6 +267,12 @@ stages:
       persistCredentials: true
       clean: true
 
+    - script: |
+        git checkout main
+        git pull origin main
+        echo "✅ Switched to main branch in k8s repo"
+      displayName: 'Switch to main branch'
+
     - download: current
       artifact: version-info
       displayName: 'Download version info'
@@ -283,9 +289,10 @@ stages:
         git config user.name "Azure DevOps Pipeline"
 
         git add values.yaml
-        git commit -m "ci: update image tag to version $APP_VERSION"
+        git commit -m "ci: update image tag to version $APP_VERSION" || echo "No changes to commit"
         git push origin main
         
         echo "✅ Helm chart tag updated to: $APP_VERSION"
       displayName: 'Update Helm chart'
+
 
