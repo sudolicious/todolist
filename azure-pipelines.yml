@@ -47,7 +47,6 @@ stages:
     displayName: 'Basic Security Checks'
     steps:
     - checkout: self
-
     - script: |
         echo "Running security checks..."
         gosec -no-fail -exclude-dir=test_integration ./...
@@ -68,13 +67,11 @@ stages:
       AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
     steps:
     - checkout: self
-    
     - task: Docker@2
       inputs:
         command: 'login'
         containerRegistry: 'docker-hub-connection'
       displayName: 'Login to Docker Hub'
-    
     - task: Docker@2
       inputs:
         command: 'build'
@@ -98,15 +95,10 @@ stages:
       AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
     steps:
     - checkout: self
-
     - script: echo "Resolved AppVersion = $(AppVersion)"
-
     - script: |
-        echo "Cleaning up any existing PostgreSQL container..."
         docker stop test-postgres 2>/dev/null || true
         docker rm test-postgres 2>/dev/null || true
-        
-        echo "Starting fresh PostgreSQL container..."
         docker run --name test-postgres \
           -e POSTGRES_USER=$(dbUser) \
           -e POSTGRES_PASSWORD=$(dbPassword) \
@@ -114,50 +106,31 @@ stages:
           -p $(dbPort):5432 \
           -d postgres:15
       displayName: 'Start PostgreSQL'
-
     - script: |
-        echo "Waiting for PostgreSQL to start..."
         for i in {1..20}; do
           if docker inspect test-postgres --format='{{.State.Running}}' | grep -q 'true'; then
             if docker exec test-postgres pg_isready -U $(dbUser) 2>/dev/null; then
-              echo "✅ PostgreSQL is ready!"
               exit 0
             fi
           fi
-          echo "Waiting for PostgreSQL... $i seconds"
           sleep 1
         done
-
-        echo "❌ PostgreSQL startup failed"
         docker logs test-postgres || true
         exit 1
       displayName: 'Check PostgreSQL readiness'
-
     - script: |
-        echo "Building backend application..."
         go build -o todolist-app .
-        
-        echo "Starting application..."
         DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) DB_SSL_MODE=$(dbSslMode) ./todolist-app &
-        APP_PID=$!
-        echo $APP_PID > app.pid
-        
-        echo "Waiting for app to start..."
+        echo $! > app.pid
         sleep 5
       displayName: 'Build and start backend'
       workingDirectory: backend
-
     - script: |
-        echo "Running integration tests..."
         DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) go test -v -tags=integration ./test_integration/ -timeout 30s
-      displayName: 'Run health check test'
+      displayName: 'Run integration tests'
       workingDirectory: backend
-
     - script: |
-        echo "Stopping application..."
         kill $(cat app.pid) 2>/dev/null || true
-        
-        echo "Stopping PostgreSQL..."
         docker stop test-postgres 2>/dev/null || true
         docker rm test-postgres 2>/dev/null || true
       displayName: 'Cleanup'
@@ -180,7 +153,6 @@ stages:
         command: 'login'
         containerRegistry: 'docker-hub-connection'
       displayName: 'Login to Docker Hub'
-    
     - task: Docker@2
       inputs:
         command: 'push'
@@ -212,32 +184,30 @@ stages:
   displayName: '📝 Update Helm Chart'
   dependsOn: Push
   condition: succeeded()
+  variables:
+    AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
   jobs:
   - job: UpdateHelm
     displayName: 'Update Helm chart version'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
     steps:
     - checkout: self
       persistCredentials: true
       clean: true
-
     - script: |
         echo "Updating Helm chart to version: $(AppVersion)"
         
-        # Clone the k8s repository using pipeline variables
+        # Clone k8s repository using GitHub credentials
         git clone https://$(k8s.username):$(k8s.token)@github.com/sudolicious/k8s.git k8s-repo
-        
         cd k8s-repo
         
-        # Update image tag in values.yaml
+        # Update values.yaml
         sed -i "s|tag:.*|tag: \"$(AppVersion)\"|g" todolist.v2/backend/values.yaml
         
-        # Configure git user for committing changes
+        # Configure git user
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
         
-        # Commit and push the updated values.yaml
+        # Commit and push changes
         git add todolist.v2/backend/values.yaml
         git commit -m "ci: update image tag to version $(AppVersion)" || echo "No changes to commit"
         git push origin main
