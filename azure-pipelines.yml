@@ -10,16 +10,16 @@ pool: Default
 variables:
   imageName: 'sudolicious1/todolist-backend'
 
-# Подключаем второй репозиторий (Helm charts)
 resources:
   repositories:
     - repository: k8s
       type: github
       name: sudolicious/k8s
-      endpoint: sudolicious   # GitHub service connection в Azure DevOps
+      ref: main
+      endpoint: 'GitHub'
 
 stages:
-# 🔖 Getting version
+# 🔖 Получаем версию
 - stage: GetVersion
   displayName: '🔖 Get Version'
   jobs:
@@ -40,7 +40,6 @@ stages:
         echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
         echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
         
-        # directory for artifacts
         mkdir -p $(Build.ArtifactStagingDirectory)/version-info
         echo "APP_VERSION=$VERSION" > $(Build.ArtifactStagingDirectory)/version-info/version.env
         echo "FULL_VERSION=$FULL_VERSION" >> $(Build.ArtifactStagingDirectory)/version-info/version.env
@@ -55,7 +54,7 @@ stages:
       artifact: version-info
       displayName: 'Publish version info'
 
-# 🔒 Security Scan
+# 🔒 Security Scan (SAST)
 - stage: SecurityScan
   displayName: '🔒 Security Scan'
   dependsOn: GetVersion
@@ -267,7 +266,7 @@ stages:
   - job: UpdateHelmChart
     displayName: 'Update Helm chart version'
     steps:
-    - checkout: git://sudolicious/k8s@main 
+    - checkout: k8s
       persistCredentials: true
       clean: true
       fetchDepth: 0
@@ -277,25 +276,12 @@ stages:
       displayName: 'Download version info'
 
     - script: |
-        echo "Current directory: $(pwd)"
-        echo "Repository contents:"
-        ls -la
-        echo "Backend contents:"
-        ls -la todolist.v2/backend/
-        
         cd todolist.v2/backend
 
-        echo "Loading version info..."
         source $(Pipeline.Workspace)/version-info/version.env
         echo "Updating to version: $APP_VERSION"
 
-        echo "Current tag value:"
-        grep "tag:" values.yaml
-
         sed -i "s|tag:.*|tag: \"$APP_VERSION\"|g" values.yaml
-
-        echo "Updated tag value:"
-        grep "tag:" values.yaml
 
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
