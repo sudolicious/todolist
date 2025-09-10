@@ -1,4 +1,4 @@
-name: $(Date:yyyyMMdd)-$(GitVersion.MajorMinorPatch)-$(Rev:.r)
+name: $(Date:yyyyMMdd)-$(Rev:.r)
 
 trigger:
   branches:
@@ -6,16 +6,6 @@ trigger:
       - main
 
 pool: Default
-
-variables:
-  imageName: 'sudolicious1/todolist-backend'
-
-resources:
-  repositories:
-    - repository: k8s
-      type: github
-      name: sudolicious/k8s
-      endpoint: sudolicious 
 
 stages:
 - stage: GetVersion
@@ -31,195 +21,16 @@ stages:
       fetchTags: true
 
     - script: |
-        VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable MajorMinorPatch)
-        FULL_VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable FullSemVer)
-        CURRENT_DATE=$(date +%Y%m%d)
-
-        echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
+        VERSION=1.2.3   # для отладки фиксированная версия, чтобы проверить push
         echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
-        echo "##vso[task.setvariable variable=FullVersion;isOutput=true]$FULL_VERSION"
-
         echo "Detected AppVersion: $VERSION"
-        echo "Detected FullVersion: $FULL_VERSION"
       name: setVersion
-      displayName: 'Get version using GitVersion'
+      displayName: 'Set fake version'
 
-- stage: SecurityScan
-  displayName: '🔒 Security Scan'
-  dependsOn: GetVersion
-  jobs:
-  - job: SecurityScan
-    displayName: 'Basic Security Checks'
-    steps:
-    - checkout: self
-
-    - script: |
-        echo "Running security checks..."
-        
-        echo "Running gosec security scan..."
-        gosec -no-fail -exclude-dir=test_integration ./...
-        
-        echo "Running go vet..."
-        go vet ./...
-        
-        echo "Verifying dependencies..."
-        go mod verify
-        
-        echo "✅ Security scan completed"
-      displayName: 'Run security scans'
-      workingDirectory: backend
-
-- stage: Build
-  displayName: '🏗️ Build Docker Image'
-  dependsOn: SecurityScan
-  jobs:
-  - job: Build
-    displayName: 'Build image'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
-    steps:
-    - checkout: self
-    
-    - task: Docker@2
-      inputs:
-        command: 'login'
-        containerRegistry: 'docker-hub-connection'
-      displayName: 'Login to Docker Hub'
-    
-    - task: Docker@2
-      inputs:
-        command: 'build'
-        repository: '$(imageName)'
-        dockerfile: 'backend/Dockerfile'
-        buildContext: 'backend'
-        tags: |
-          $(AppVersion)
-          latest
-        arguments: '--build-arg APP_VERSION=$(AppVersion)'
-      displayName: 'Build Docker image'
-
-- stage: IntegrationTest
-  displayName: '🧪 Integration Test'
-  dependsOn: Build
-  jobs:
-  - job: TestBackend
-    displayName: 'Integration Tests'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
-    steps:
-    - checkout: self
-
-    - script: echo "Resolved AppVersion = $(AppVersion)"
-
-    - script: |
-        echo "Cleaning up any existing PostgreSQL container..."
-        docker stop test-postgres 2>/dev/null || true
-        docker rm test-postgres 2>/dev/null || true
-        
-        echo "Starting fresh PostgreSQL container..."
-        docker run --name test-postgres \
-          -e POSTGRES_USER=$(dbUser) \
-          -e POSTGRES_PASSWORD=$(dbPassword) \
-          -e POSTGRES_DB=$(dbName) \
-          -p $(dbPort):5432 \
-          -d postgres:15
-      displayName: 'Start PostgreSQL'
-
-    - script: |
-        echo "Waiting for PostgreSQL to start..."
-        for i in {1..20}; do
-          if docker inspect test-postgres --format='{{.State.Running}}' | grep -q 'true'; then
-            if docker exec test-postgres pg_isready -U $(dbUser) 2>/dev/null; then
-              echo "✅ PostgreSQL is ready!"
-              exit 0
-            fi
-          fi
-          echo "Waiting for PostgreSQL... $i seconds"
-          sleep 1
-        done
-
-        echo "❌ PostgreSQL startup failed"
-        echo "Container logs:"
-        docker logs test-postgres || true
-        exit 1
-      displayName: 'Check PostgreSQL readiness'
-
-    - script: |
-        echo "Building backend application..."
-        go build -o todolist-app .
-        
-        echo "Starting application..."
-        DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) DB_SSL_MODE=$(dbSslMode) ./todolist-app &
-        APP_PID=$!
-        echo $APP_PID > app.pid
-        
-        echo "Waiting for app to start..."
-        sleep 5
-      displayName: 'Build and start backend'
-      workingDirectory: backend
-
-    - script: |
-        echo "Running integration tests..."
-        DB_HOST=localhost DB_USER=$(dbUser) DB_PASSWORD=$(dbPassword) DB_NAME=$(dbName) DB_PORT=$(dbPort) go test -v -tags=integration ./test_integration/ -timeout 30s
-      displayName: 'Run health check test'
-      workingDirectory: backend
-
-    - script: |
-        echo "Stopping application..."
-        kill $(cat app.pid) 2>/dev/null || true
-        
-        echo "Stopping PostgreSQL..."
-        docker stop test-postgres 2>/dev/null || true
-        docker rm test-postgres 2>/dev/null || true
-      displayName: 'Cleanup'
-      condition: always()
-      workingDirectory: backend
-
-- stage: Push
-  displayName: '🚀 Push to Docker Hub'
-  dependsOn: IntegrationTest
-  condition: succeeded()
-  jobs:
-  - job: Push
-    displayName: 'Push image'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
-    steps:
-    - task: Docker@2
-      inputs:
-        command: 'login'
-        containerRegistry: 'docker-hub-connection'
-      displayName: 'Login to Docker Hub'
-    
-    - task: Docker@2
-      inputs:
-        command: 'push'
-        repository: '$(imageName)'
-        tags: |
-          $(AppVersion)
-          latest
-      displayName: 'Push Docker image'
-
-- stage: Cleanup
-  displayName: '🧹 Cleanup'
-  dependsOn: Push
-  jobs:
-  - job: Cleanup
-    displayName: 'Cleanup'
-    variables:
-      AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
-    steps:
-    - script: |
-        docker rmi $(imageName):$(AppVersion) 2>/dev/null || true
-        docker rmi $(imageName):latest 2>/dev/null || true
-        docker image prune -f
-      displayName: 'Remove images'
-      condition: always()
-
-# 📝 Update Helm Chart
+# 📝 Update Helm Chart only
 - stage: UpdateHelmChart
   displayName: '📝 Update Helm Chart'
-  dependsOn: Push
+  dependsOn: GetVersion
   condition: succeeded()
   jobs:
   - job: UpdateHelm
@@ -227,25 +38,32 @@ stages:
     variables:
       AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
     steps:
-    - checkout: k8s     # теперь Azure знает, что это GitHub repo sudolicious/k8s
-      persistCredentials: true
-      clean: true
-
     - script: |
         echo "Updating Helm chart to version: $(AppVersion)"
-        
-        # Update image tag in values.yaml
+
+        # Debug token
+        echo "Token length: ${#SYSTEM_ACCESSTOKEN}"
+        echo "Token starts with: ${SYSTEM_ACCESSTOKEN:0:5}"
+
+        # Clone k8s repo with service connection
+        git clone https://oauth2:$SYSTEM_ACCESSTOKEN@github.com/sudolicious/k8s.git k8s-repo
+
+        cd k8s-repo
+
+        # Update values.yaml
         sed -i "s|tag:.*|tag: \"$(AppVersion)\"|g" todolist.v2/backend/values.yaml
-        
-        # Configure git user for committing changes
+
+        # Git config
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
-        
-        # Commit and push the updated values.yaml
+
+        # Commit and push
         git add todolist.v2/backend/values.yaml
         git commit -m "ci: update image tag to version $(AppVersion)" || echo "No changes to commit"
         git push origin main
-        
+
         echo "✅ Helm chart tag updated to: $(AppVersion)"
       displayName: 'Update Helm chart version'
+      env:
+        SYSTEM_ACCESSTOKEN: $(System.AccessToken)
 
