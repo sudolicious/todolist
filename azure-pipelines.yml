@@ -260,22 +260,36 @@ stages:
       displayName: 'Download version info'
 
     - script: |
-        git clone https://github.com/sudolicious/k8s.git
+        echo "Cloning repository with GitHub token..."
+        git clone https://$(GITHUB_TOKEN)@github.com/sudolicious/k8s.git
         cd k8s/todolist.v2
         
+        echo "Loading version info..."
         source $(Pipeline.Workspace)/version-info/version.env
+        echo "Updating to version: $APP_VERSION"
         
-        yq eval ".image.tag = \"$APP_VERSION\"" -i values.yaml
+        # Backup original file
+        cp values.yaml values.yaml.backup
         
-        echo "Updated values.yaml:"
-        cat values.yaml | grep -A2 -B2 "image:"
+        # Update image tag
+        sed -i "s|tag:.*|tag: \"$APP_VERSION\"|g" values.yaml
         
+        # Verify changes
+        echo "Before update:"
+        grep "tag:" values.yaml.backup
+        echo "After update:"
+        grep "tag:" values.yaml
+        
+        # Git configuration
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
         
+        # Commit and push
         git add values.yaml
         git commit -m "ci: update image tag to version $APP_VERSION"
         git push origin main
         
-        echo "✅ Helm chart tag updated to: $APP_VERSION"
-      displayName: 'Update image tag in Helm chart'
+        echo "✅ Successfully updated Helm chart to version: $APP_VERSION"
+      displayName: 'Update Helm chart image tag'
+      env:
+        GITHUB_TOKEN: $(github-token)
