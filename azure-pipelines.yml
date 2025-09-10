@@ -19,7 +19,7 @@ resources:
       endpoint: 'GitHub'
 
 stages:
-# 🔖 Получаем версию
+# 🔖 Get Version
 - stage: GetVersion
   displayName: '🔖 Get Version'
   jobs:
@@ -263,7 +263,7 @@ stages:
   - job: UpdateHelmChart
     displayName: 'Update Helm chart version'
     steps:
-    - checkout: git://sudolicious/k8s@main
+    - checkout: k8s
       persistCredentials: true
       clean: true
 
@@ -275,20 +275,17 @@ stages:
         source $(Pipeline.Workspace)/version-info/version.env
         echo "Updating to version: $APP_VERSION"
 
-        # Переходим в директорию с Helm chart
         cd todolist.v2/backend
 
-        # Обновляем версию в values.yaml
         sed -i "s|tag:.*|tag: \"$APP_VERSION\"|g" values.yaml
 
-        # Настраиваем git
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
 
-        # Коммитим и пушим изменения
         git add values.yaml
         git commit -m "ci: update image tag to version $APP_VERSION"
-        git push origin main
+        git push origin HEAD:main
         
         echo "✅ Helm chart tag updated to: $APP_VERSION"
       displayName: 'Update Helm chart'
+
