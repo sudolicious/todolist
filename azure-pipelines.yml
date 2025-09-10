@@ -209,7 +209,7 @@ stages:
       displayName: 'Remove images'
       condition: always()
 
-# 📝 NEW STAGE: Update Helm Chart
+# 📝 Update Helm Chart
 - stage: UpdateHelmChart
   displayName: '📝 Update Helm Chart'
   dependsOn: Push
