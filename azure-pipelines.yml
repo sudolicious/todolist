@@ -254,7 +254,8 @@ stages:
     displayName: 'Update Helm chart version'
     steps:
 
-    - checkout: git://sudolicious/k8s
+    - checkout: k8s
+      repository: sudolicious/k8s
       persistCredentials: true
 
     - download: current
