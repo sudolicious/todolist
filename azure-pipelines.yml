@@ -227,8 +227,12 @@ stages:
     - script: |
         echo "Updating Helm chart to version: $(AppVersion)"
         
+        # Проверим токен
+        echo "Token length: ${#SYSTEM_ACCESSTOKEN}"
+        echo "Token starts with: ${SYSTEM_ACCESSTOKEN:0:5}"
+        
         # Clone the k8s repository with manifests
-        git clone https://oauth2:$(SYSTEM_ACCESSTOKEN)@github.com/sudolicious/k8s.git k8s-repo
+        git clone https://oauth2:$SYSTEM_ACCESSTOKEN@github.com/sudolicious/k8s.git k8s-repo
         
         cd k8s-repo
         
