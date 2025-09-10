@@ -111,11 +111,6 @@ stages:
         arguments: '--build-arg APP_VERSION=$(DockerAppVersion)'
       displayName: 'Build Docker image'
 
-    # Public Docker image as artifact for CD pipeline
-    - publish: $(Build.ArtifactStagingDirectory)
-      artifact: docker-image-info
-      displayName: 'Publish Docker image info'
-
 - stage: IntegrationTest
   displayName: '🧪 Integration Test'
   dependsOn: Build
@@ -217,17 +212,19 @@ stages:
           latest
       displayName: 'Push Docker image'
 
-    # Publish information about pushed image
+    # Create and publish deployment info (единственный артефакт для CD)
     - script: |
         source $(Pipeline.Workspace)/version-info/version.env
-        echo "IMAGE_NAME=$(imageName)" > $(Build.ArtifactStagingDirectory)/image-info.env
-        echo "IMAGE_TAG=$APP_VERSION" >> $(Build.ArtifactStagingDirectory)/image-info.env
-        echo "PUSH_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $(Build.ArtifactStagingDirectory)/image-info.env
-      displayName: 'Create image info'
+        echo "IMAGE_NAME=$(imageName)" > $(Build.ArtifactStagingDirectory)/deployment-info.env
+        echo "IMAGE_TAG=$APP_VERSION" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
+        echo "FULL_VERSION=$FULL_VERSION" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
+        echo "BUILD_DATE=$BUILD_DATE" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
+        echo "PUSH_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
+      displayName: 'Create deployment info'
 
-    - publish: $(Build.ArtifactStagingDirectory)/image-info.env
-      artifact: image-push-info
-      displayName: 'Publish image push info'
+    - publish: $(Build.ArtifactStagingDirectory)/deployment-info.env
+      artifact: deployment-info
+      displayName: 'Publish deployment info'
 
 - stage: Cleanup
   displayName: '🧹 Cleanup'
@@ -247,3 +244,38 @@ stages:
         docker image prune -f
       displayName: 'Remove images'
       condition: always()
+      
+- stage: UpdateManifests
+  displayName: '📝 Update Helm Chart'
+  dependsOn: Push
+  condition: succeeded()
+  jobs:
+  - job: UpdateHelmChart
+    displayName: 'Update Helm chart version'
+    steps:
+    - checkout: none
+    
+    - download: current
+      artifact: version-info
+      displayName: 'Download version info'
+
+    - script: |
+        git clone https://github.com/sudolicious/k8s.git
+        cd k8s/todolist.v2
+        
+        source $(Pipeline.Workspace)/version-info/version.env
+        
+        yq eval ".image.tag = \"$APP_VERSION\"" -i values.yaml
+        
+        echo "Updated values.yaml:"
+        cat values.yaml | grep -A2 -B2 "image:"
+        
+        git config user.email "azure-devops-pipeline@noreply.com"
+        git config user.name "Azure DevOps Pipeline"
+        
+        git add values.yaml
+        git commit -m "ci: update image tag to version $APP_VERSION"
+        git push origin main
+        
+        echo "✅ Helm chart tag updated to: $APP_VERSION"
+      displayName: 'Update image tag in Helm chart'
