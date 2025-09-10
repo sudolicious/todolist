@@ -13,13 +13,13 @@ variables:
 resources:
   repositories:
     - repository: k8s
-      type: git
+      type: github
       name: sudolicious/k8s
       ref: main
-      endpoint: 'GitHub'
+      endpoint: sudolicious 
 
 stages:
-# 🔖 Get Version
+# 🔖 Получаем версию
 - stage: GetVersion
   displayName: '🔖 Get Version'
   jobs:
@@ -284,7 +284,7 @@ stages:
 
         git add values.yaml
         git commit -m "ci: update image tag to version $APP_VERSION"
-        git push origin HEAD:main
+        git push origin main
         
         echo "✅ Helm chart tag updated to: $APP_VERSION"
       displayName: 'Update Helm chart'
