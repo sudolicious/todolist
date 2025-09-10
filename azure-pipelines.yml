@@ -9,7 +9,14 @@ pool: Default
 
 variables:
   imageName: 'sudolicious1/todolist-backend'
-  
+
+resources:
+  repositories:
+    - repository: k8s
+      type: github
+      name: sudolicious/k8s
+      endpoint: sudolicious 
+
 stages:
 - stage: GetVersion
   displayName: '🔖 Get Version'
@@ -220,28 +227,24 @@ stages:
     variables:
       AppVersion: $[ stageDependencies.GetVersion.GetVersion.outputs['setVersion.AppVersion'] ]
     steps:
-    # ✅ checkout k8s repo via service connection
-    - checkout: k8s
+    - checkout: k8s     # теперь Azure знает, что это GitHub repo sudolicious/k8s
       persistCredentials: true
       clean: true
 
     - script: |
         echo "Updating Helm chart to version: $(AppVersion)"
         
-        # Debug: make sure values.yaml exists
-        ls -R todolist.v2/backend || true
-        
-        # Update image tag
+        # Update image tag in values.yaml
         sed -i "s|tag:.*|tag: \"$(AppVersion)\"|g" todolist.v2/backend/values.yaml
         
-        # Git config
+        # Configure git user for committing changes
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
         
-        # Commit & push
+        # Commit and push the updated values.yaml
         git add todolist.v2/backend/values.yaml
         git commit -m "ci: update image tag to version $(AppVersion)" || echo "No changes to commit"
-        git push origin HEAD:main
+        git push origin main
         
         echo "✅ Helm chart tag updated to: $(AppVersion)"
       displayName: 'Update Helm chart version'
