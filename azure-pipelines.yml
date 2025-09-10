@@ -13,7 +13,7 @@ variables:
 resources:
   repositories:
     - repository: k8s
-      type: github
+      type: git
       name: sudolicious/k8s
       ref: main
       endpoint: 'GitHub'
@@ -40,17 +40,16 @@ stages:
         echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
         echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
         
-        mkdir -p $(Build.ArtifactStagingDirectory)/version-info
-        echo "APP_VERSION=$VERSION" > $(Build.ArtifactStagingDirectory)/version-info/version.env
-        echo "FULL_VERSION=$FULL_VERSION" >> $(Build.ArtifactStagingDirectory)/version-info/version.env
-        echo "BUILD_DATE=$CURRENT_DATE" >> $(Build.ArtifactStagingDirectory)/version-info/version.env
+        echo "APP_VERSION=$VERSION" > version.env
+        echo "FULL_VERSION=$FULL_VERSION" >> version.env
+        echo "BUILD_DATE=$CURRENT_DATE" >> version.env
         
         echo "Detected AppVersion: $VERSION"
         echo "Detected FullVersion: $FULL_VERSION"
       name: setVersion
       displayName: 'Get version using GitVersion'
 
-    - publish: $(Build.ArtifactStagingDirectory)/version-info
+    - publish: version.env
       artifact: version-info
       displayName: 'Publish version info'
 
@@ -154,11 +153,9 @@ stages:
 
     - script: |
         for i in {1..20}; do
-          if docker inspect test-postgres --format='{{.State.Running}}' | grep -q 'true'; then
-            if docker exec test-postgres pg_isready -U $(dbUser) 2>/dev/null; then
-              echo "✅ PostgreSQL is ready!"
-              exit 0
-            fi
+          if docker exec test-postgres pg_isready -U $(dbUser) 2>/dev/null; then
+            echo "✅ PostgreSQL is ready!"
+            exit 0
           fi
           echo "Waiting for PostgreSQL... $i seconds"
           sleep 1
@@ -227,14 +224,14 @@ stages:
     # Create and publish deployment info
     - script: |
         source $(Pipeline.Workspace)/version-info/version.env
-        echo "IMAGE_NAME=$(imageName)" > $(Build.ArtifactStagingDirectory)/deployment-info.env
-        echo "IMAGE_TAG=$APP_VERSION" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
-        echo "FULL_VERSION=$FULL_VERSION" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
-        echo "BUILD_DATE=$BUILD_DATE" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
-        echo "PUSH_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $(Build.ArtifactStagingDirectory)/deployment-info.env
+        echo "IMAGE_NAME=$(imageName)" > deployment-info.env
+        echo "IMAGE_TAG=$APP_VERSION" >> deployment-info.env
+        echo "FULL_VERSION=$FULL_VERSION" >> deployment-info.env
+        echo "BUILD_DATE=$BUILD_DATE" >> deployment-info.env
+        echo "PUSH_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> deployment-info.env
       displayName: 'Create deployment info'
 
-    - publish: $(Build.ArtifactStagingDirectory)/deployment-info.env
+    - publish: deployment-info.env
       artifact: deployment-info
       displayName: 'Publish deployment info'
 
@@ -266,26 +263,29 @@ stages:
   - job: UpdateHelmChart
     displayName: 'Update Helm chart version'
     steps:
-    - checkout: k8s
+    - checkout: git://sudolicious/k8s@main
       persistCredentials: true
       clean: true
-      fetchDepth: 0
 
     - download: current
       artifact: version-info
       displayName: 'Download version info'
 
     - script: |
-        cd todolist.v2/backend
-
         source $(Pipeline.Workspace)/version-info/version.env
         echo "Updating to version: $APP_VERSION"
 
+        # Переходим в директорию с Helm chart
+        cd todolist.v2/backend
+
+        # Обновляем версию в values.yaml
         sed -i "s|tag:.*|tag: \"$APP_VERSION\"|g" values.yaml
 
+        # Настраиваем git
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
 
+        # Коммитим и пушим изменения
         git add values.yaml
         git commit -m "ci: update image tag to version $APP_VERSION"
         git push origin main
