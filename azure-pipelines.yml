@@ -1,4 +1,4 @@
-name: $(Date:yyyyMMdd)-$(Rev:.r)
+name: $(Date:yyyyMMdd)-$(GitVersion.MajorMinorPatch)-$(Rev:.r)
 
 trigger:
   branches:
@@ -8,6 +8,7 @@ trigger:
 pool: Default
 
 stages:
+# 🔖 Stage: GetVersion
 - stage: GetVersion
   displayName: '🔖 Get Version'
   jobs:
@@ -21,13 +22,20 @@ stages:
       fetchTags: true
 
     - script: |
-        VERSION=1.2.3   # для отладки фиксированная версия, чтобы проверить push
-        echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
-        echo "Detected AppVersion: $VERSION"
-      name: setVersion
-      displayName: 'Set fake version'
+        VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable MajorMinorPatch)
+        FULL_VERSION=$(dotnet exec /home/olga/.dotnet/tools/.store/gitversion.tool/6.4.0/gitversion.tool/6.4.0/tools/net8.0/any/gitversion.dll /showvariable FullSemVer)
+        CURRENT_DATE=$(date +%Y%m%d)
 
-# 📝 Update Helm Chart only
+        echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
+        echo "##vso[task.setvariable variable=AppVersion;isOutput=true]$VERSION"
+        echo "##vso[task.setvariable variable=FullVersion;isOutput=true]$FULL_VERSION"
+
+        echo "Detected AppVersion: $VERSION"
+        echo "Detected FullVersion: $FULL_VERSION"
+      name: setVersion
+      displayName: 'Get version using GitVersion'
+
+# 📝 Stage: Update Helm Chart
 - stage: UpdateHelmChart
   displayName: '📝 Update Helm Chart'
   dependsOn: GetVersion
@@ -41,11 +49,11 @@ stages:
     - script: |
         echo "Updating Helm chart to version: $(AppVersion)"
 
-        # Debug token
+        # Debug: check token presence
         echo "Token length: ${#SYSTEM_ACCESSTOKEN}"
         echo "Token starts with: ${SYSTEM_ACCESSTOKEN:0:5}"
 
-        # Clone k8s repo with service connection
+        # Clone k8s repo with pipeline token
         git clone https://oauth2:$SYSTEM_ACCESSTOKEN@github.com/sudolicious/k8s.git k8s-repo
 
         cd k8s-repo
@@ -53,7 +61,7 @@ stages:
         # Update values.yaml
         sed -i "s|tag:.*|tag: \"$(AppVersion)\"|g" todolist.v2/backend/values.yaml
 
-        # Git config
+        # Git config for commit
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
 
