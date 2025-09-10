@@ -7,8 +7,10 @@ trigger:
 
 pool: Default
 
+variables:
+  imageName: 'sudolicious1/todolist-backend'
+  
 stages:
-# 🔖 Stage: GetVersion
 - stage: GetVersion
   displayName: '🔖 Get Version'
   jobs:
@@ -35,7 +37,7 @@ stages:
       name: setVersion
       displayName: 'Get version using GitVersion'
 
-# 📝 Stage: Update Helm Chart
+# 📝 Update Helm Chart only
 - stage: UpdateHelmChart
   displayName: '📝 Update Helm Chart'
   dependsOn: GetVersion
@@ -49,19 +51,15 @@ stages:
     - script: |
         echo "Updating Helm chart to version: $(AppVersion)"
 
-        # Debug: check token presence
-        echo "Token length: ${#SYSTEM_ACCESSTOKEN}"
-        echo "Token starts with: ${SYSTEM_ACCESSTOKEN:0:5}"
-
-        # Clone k8s repo with pipeline token
-        git clone https://oauth2:$SYSTEM_ACCESSTOKEN@github.com/sudolicious/k8s.git k8s-repo
+        # Clone k8s repo with GitHub PAT from pipeline variables
+        git clone https://$(k8s.username):$(k8s.token)@github.com/sudolicious/k8s.git k8s-repo
 
         cd k8s-repo
 
         # Update values.yaml
         sed -i "s|tag:.*|tag: \"$(AppVersion)\"|g" todolist.v2/backend/values.yaml
 
-        # Git config for commit
+        # Git config
         git config user.email "azure-devops-pipeline@noreply.com"
         git config user.name "Azure DevOps Pipeline"
 
@@ -72,6 +70,4 @@ stages:
 
         echo "✅ Helm chart tag updated to: $(AppVersion)"
       displayName: 'Update Helm chart version'
-      env:
-        SYSTEM_ACCESSTOKEN: $(System.AccessToken)
 
