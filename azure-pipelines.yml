@@ -186,6 +186,18 @@ stages:
           $(DockerAppVersion)
           latest
       displayName: 'Push Docker image'
+    - script: |
+        source $(Pipeline.Workspace)/version-info/version.env
+        echo "IMAGE_NAME=$(imageName)" >> $(Pipeline.Workspace)/version-info/version.env
+        echo "CD_READY=true" >> $(Pipeline.Workspace)/version-info/version.env
+        echo "CD_TRIGGER_TIMESTAMP=$(date +%s)" >> $(Pipeline.Workspace)/version-info/version.env
+        echo "GIT_COMMIT=$(Build.SourceVersion)" >> $(Pipeline.Workspace)/version-info/version.env
+        echo "BUILD_ID=$(Build.BuildId)" >> $(Pipeline.Workspace)/version-info/version.env
+      displayName: 'Prepare CD artifacts'
+
+    - publish: $(Pipeline.Workspace)/version-info
+      artifact: version-info
+      displayName: 'Publish version info for CD'
 
 # 🧹 Cleanup images
 - stage: Cleanup
