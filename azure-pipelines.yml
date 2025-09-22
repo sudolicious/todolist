@@ -45,11 +45,8 @@ stages:
     displayName: 'Basic Security Checks'
     steps:
     - checkout: self
-    - download: current
-      artifact: version-info
-      displayName: 'Download version info'
     - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
+        source $(Pipeline.Workspace)/version.env
         echo "AppVersion: $APP_VERSION"
     - script: |
         echo "Running security checks..."
@@ -69,11 +66,8 @@ stages:
     displayName: 'Build image'
     steps:
     - checkout: self
-    - download: current
-      artifact: version-info
-      displayName: 'Download version info'
     - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
+        source $(Pipeline.Workspace)/version.env
         echo "##vso[task.setvariable variable=DockerAppVersion]$APP_VERSION"
         echo "Building version: $APP_VERSION"
       displayName: 'Set Docker version variable'
@@ -103,11 +97,8 @@ stages:
     displayName: 'Integration Tests'
     steps:
     - checkout: self
-    - download: current
-      artifact: version-info
-      displayName: 'Download version info'
     - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
+        source $(Pipeline.Workspace)/version.env
         echo "Testing version: $APP_VERSION"
     - script: |
         docker stop test-postgres 2>/dev/null || true
@@ -181,11 +172,8 @@ stages:
   - job: Cleanup
     displayName: 'Cleanup'
     steps:
-    - download: current
-      artifact: version-info
-      displayName: 'Download version info'
     - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
+        source $(Pipeline.Workspace)/version.env
         docker rmi $(imageName):$APP_VERSION 2>/dev/null || true
         docker rmi $(imageName):latest 2>/dev/null || true
         docker image prune -f
@@ -208,7 +196,7 @@ stages:
       artifact: version-info
       displayName: 'Download version info'
     - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
+        source $(Pipeline.Workspace)/version.env
         echo "Updating Helm chart to version: $APP_VERSION"
         
         git clone https://$(k8s.username):$(k8s.token)@github.com/sudolicious/k8s.git k8s-repo
