@@ -30,16 +30,11 @@ stages:
         CURRENT_DATE=$(date +%Y%m%d)
 
         echo "##vso[build.updatebuildnumber]${CURRENT_DATE}-${VERSION}-$(Rev:r)"
-        echo "APP_VERSION=$VERSION" > $(Build.SourcesDirectory)/version.env
-        
+        echo "APP_VERSION=$VERSION" > $(Pipeline.Workspace)/version.env
+
         echo "Detected AppVersion: $VERSION"
         echo "Detected FullVersion: $FULL_VERSION"
-      name: setVersion
       displayName: 'Get version using GitVersion'
-
-    - publish: $(Build.SourcesDirectory)/version.env
-      artifact: version-info
-      displayName: 'Publish version info'
 
 # 🔒 Security Scan
 - stage: SecurityScan
@@ -165,37 +160,16 @@ stages:
   - job: Push
     displayName: 'Push image'
     steps:
-    - download: current
-      artifact: version-info
-      displayName: 'Download version info'
     - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
-        echo "##vso[task.setvariable variable=DockerAppVersion]$APP_VERSION"
-        echo "Pushing version: $APP_VERSION"
-      displayName: 'Set Docker version variable'
-    - task: Docker@2
-      inputs:
-        command: 'login'
-        containerRegistry: 'docker-hub-connection'
-      displayName: 'Login to Docker Hub'
-    - task: Docker@2
-      inputs:
-        command: 'push'
-        repository: '$(imageName)'
-        tags: |
-          $(DockerAppVersion)
-          latest
-      displayName: 'Push Docker image'
-    - script: |
-        source $(Pipeline.Workspace)/version-info/version.env
-        echo "IMAGE_NAME=$(imageName)" >> $(Pipeline.Workspace)/version-info/version.env
-        echo "CD_READY=true" >> $(Pipeline.Workspace)/version-info/version.env
-        echo "CD_TRIGGER_TIMESTAMP=$(date +%s)" >> $(Pipeline.Workspace)/version-info/version.env
-        echo "GIT_COMMIT=$(Build.SourceVersion)" >> $(Pipeline.Workspace)/version-info/version.env
-        echo "BUILD_ID=$(Build.BuildId)" >> $(Pipeline.Workspace)/version-info/version.env
+        source $(Pipeline.Workspace)/version.env
+        echo "IMAGE_NAME=$(imageName)" >> $(Pipeline.Workspace)/version.env
+        echo "CD_READY=true" >> $(Pipeline.Workspace)/version.env
+        echo "CD_TRIGGER_TIMESTAMP=$(date +%s)" >> $(Pipeline.Workspace)/version.env
+        echo "GIT_COMMIT=$(Build.SourceVersion)" >> $(Pipeline.Workspace)/version.env
+        echo "BUILD_ID=$(Build.BuildId)" >> $(Pipeline.Workspace)/version.env
       displayName: 'Prepare CD artifacts'
 
-    - publish: $(Pipeline.Workspace)/version-info
+    - publish: $(Pipeline.Workspace)/version.env
       artifact: version-info
       displayName: 'Publish version info for CD'
 
